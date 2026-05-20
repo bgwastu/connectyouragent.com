@@ -71,7 +71,7 @@ a { color: inherit; }
 
 <script>
 const BASE = location.origin;
-const match = location.pathname.match(new RegExp("^/c/([a-z]+-[a-z]+-[a-z]+\\\\d{4})"));
+const match = location.pathname.match(new RegExp("^/c/([0-9a-f]{12})"));
 const CODE = match ? match[1] : null;
 
 function $(id) { return document.getElementById(id); }
@@ -168,7 +168,7 @@ export function pagesHandler(req: Request, url: URL): Response | null {
     return html(HTML_TEMPLATE);
   }
 
-  const connectMatch = path.match(/^\/c\/([a-z]+-[a-z]+-[a-z]+\d{4})$/);
+  const connectMatch = path.match(/^\/c\/([0-9a-f]{12})$/);
   if (connectMatch) {
     const acceptsHtml =
       req.headers.get("accept")?.includes("text/html") ?? false;
@@ -178,7 +178,7 @@ export function pagesHandler(req: Request, url: URL): Response | null {
   }
 
   const promptMatch = path.match(
-    /^\/c\/([a-z]+-[a-z]+-[a-z]+\d{4})\/prompt(?:\.md)?$/,
+    /^\/c\/([0-9a-f]{12})\/prompt(?:\.md)?$/,
   );
   if (promptMatch) {
     const session = getSession(promptMatch[1]!);

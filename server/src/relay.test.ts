@@ -13,7 +13,7 @@ function wsStub() {
 }
 
 test("rejects a second agent for the same session code", () => {
-  const code = "sage-daffodil-antirust4321";
+  const code = "a1b2c3d4e5f6";
   db.prepare("DELETE FROM audit_log WHERE session_code = ?").run(code);
   db.prepare("DELETE FROM sessions WHERE code = ?").run(code);
   createSession(code);

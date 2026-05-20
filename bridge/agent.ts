@@ -90,7 +90,7 @@ async function createSession(): Promise<string> {
 
 async function main() {
   const code = process.argv[2] || await createSession();
-  if (!/^[a-z]+-[a-z]+-[a-z]+\d{4}$/.test(code)) throw new Error("Usage: cya-bridge <session passphrase>");
+  if (!/^[0-9a-f]{12}$/.test(code)) throw new Error("Usage: cya-bridge <session code>");
 
   const shell = getInteractiveShell();
   const ptyCommand = getPtyCommand(shell);
@@ -163,6 +163,7 @@ async function main() {
 
     if (msg.type === "command" && msg.id) {
       log(`cmd http: ${msg.cmd}`);
+      sendOutput(ws, `[CYA] # ${msg.cmd}\n`);
       const result = await runOneShot(msg.cmd);
       log(`cmd_result id=${msg.id} exit=${result.exit_code} out=${result.output.slice(0, 200)}`);
       sendJson(ws, { type: "command_result", id: msg.id, ...result });
@@ -171,6 +172,7 @@ async function main() {
 
     if (msg.type === "command") {
       log(`cmd tty: ${msg.cmd}`);
+      sendOutput(ws, `[CYA] # ${msg.cmd}\n`);
       term.stdin.write(`${msg.cmd}\r`);
       return;
     }

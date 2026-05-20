@@ -12,58 +12,7 @@ function effectiveOrigin(req: Request): string {
 }
 
 export function generateCode(): string {
-  const adjectives = [
-    "sage", "quiet", "brisk", "bright", "calm", "clever", "gentle", "honest", "lucky", "solar",
-    "swift", "brave", "fresh", "grand", "happy", "jolly", "keen", "light", "merry", "noble",
-    "proud", "rapid", "sharp", "smart", "solid", "sunny", "super", "vivid", "warm", "young",
-    "azure", "bold", "cool", "crisp", "eager", "fancy", "gold", "green", "handy", "ideal",
-    "jazzy", "kind", "lazy", "mellow", "neat", "pure", "ready", "rosy", "safe", "tidy",
-    "agile", "amber", "blithe", "breezy", "cozy", "deft", "droll", "fiery", "fleet", "giddy",
-    "jaunty", "lithe", "lofty", "nimble", "plucky", "quirky", "rustic", "serene", "silky", "sleek",
-    "spry", "sturdy", "subtle", "suave", "wily", "witty", "zany", "zesty", "bubbly", "chirpy",
-    "dandy", "dapper", "fluffy", "frisky", "glad", "perky", "snappy", "spiffy", "trim", "natty",
-    "peppy", "plump", "pert", "prim", "snug", "bonny", "comely", "canny", "earnest", "frank",
-  ];
-
-  const nouns = [
-    "daffodil", "henna", "cedar", "ember", "fig", "harbor", "ivy", "jasmine", "meadow", "willow",
-    "acorn", "bamboo", "brook", "cliff", "coral", "cove", "crane", "dune", "flint", "grove",
-    "hawk", "hollow", "lark", "lotus", "maple", "marsh", "mist", "oak", "pearl", "pine",
-    "raven", "reed", "ridge", "stone", "swift", "thyme", "vale", "vine", "wolf", "yew",
-    "alder", "aspen", "aster", "basil", "birch", "bloom", "briar", "clover", "cress", "elder",
-    "fennel", "fern", "gorse", "heath", "holly", "juniper", "laurel", "lichen", "linden", "lupine",
-    "mallow", "mimosa", "moss", "myrtle", "nettle", "orchid", "pansy", "papyrus", "phlox", "poppy",
-    "primrose", "rhubarb", "saffron", "sorrel", "spruce", "sumac", "tansy", "thistle", "tulip", "anemone",
-    "azalea", "begonia", "camellia", "dahlia", "forsythia", "gardenia", "hibiscus", "iris", "lavender", "lilac",
-    "magnolia", "oleander", "wisteria", "yarrow", "zinnia", "foxglove", "bluebell", "campion", "gentian", "cowslip",
-  ];
-
-  const tails = [
-    "antirust", "gab", "orbit", "signal", "anchor", "cobalt", "delta", "pixel", "raven", "topaz",
-    "arc", "beacon", "bolt", "cipher", "crest", "drift", "echo", "flare", "forge", "frost",
-    "glint", "haven", "helix", "horizon", "latch", "lens", "marble", "nexus", "onyx", "opal",
-    "pioneer", "plume", "prism", "quartz", "quest", "rift", "scout", "shard", "spark", "spire",
-    "surge", "talon", "tide", "trace", "vault", "vertex", "vigil", "vista", "warp", "zenith",
-    "aegis", "alchemy", "archer", "badge", "banner", "blade", "blitz", "boulder", "cairn", "cobra",
-    "comet", "corsair", "crescent", "dagger", "drake", "emblem", "falcon", "fathom", "gazelle", "glacier",
-    "glimmer", "griffin", "halberd", "helm", "herald", "keystone", "lantern", "legacy", "mammoth", "mantle",
-    "meteor", "monolith", "obelisk", "oracle", "paladin", "phantom", "pinnacle", "portal", "quiver", "relic",
-    "rune", "scepter", "sentry", "spindle", "temple", "titan", "tower", "trident", "vanguard", "wyvern",
-  ];
-
-  // Rejection sampling eliminates modulo bias
-  const pick = (items: string[]): string => {
-    const max = Math.floor(2 ** 32 / items.length) * items.length;
-    for (;;) {
-      const rand = crypto.getRandomValues(new Uint32Array(1))[0]!;
-      if (rand < max) return items[rand % items.length]!;
-    }
-  };
-
-  // 4 random digits = 10,000 possibilities (13.3 bits)
-  const digits = crypto.getRandomValues(new Uint32Array(1))[0]! % 10000;
-
-  return `${pick(adjectives)}-${pick(nouns)}-${pick(tails)}${String(digits).padStart(4, "0")}`;
+  return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 }
 
 export function apiHandler(req: Request, url: URL): Response | Promise<Response> | null {
@@ -87,7 +36,7 @@ export function apiHandler(req: Request, url: URL): Response | Promise<Response>
     return json(listActiveSessions());
   }
 
-  const match = path.match(/^\/api\/session\/([a-z]+-[a-z]+-[a-z]+\d{4})(?:\/(run|cmd|disconnect|prompt(?:\.md)?))?$/);
+  const match = path.match(/^\/api\/session\/([0-9a-f]{12})(?:\/(run|cmd|disconnect|prompt(?:\.md)?))?$/);
   if (!match) return null;
 
   const code = match[1]!;
