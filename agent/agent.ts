@@ -37,7 +37,6 @@ async function main() {
   });
 
   console.log(`[CYA] Session ${code}`);
-  console.log(`[CYA] Connect Your Agent is transparent. Commands from the connected assistant run on this machine.`);
   console.log(`[CYA] Press Ctrl+C to disconnect.`);
 
   pump(proc.stdout, ws);
