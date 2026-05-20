@@ -6,6 +6,11 @@ import type { ProtocolMsg } from "../server/src/protocol.ts";
 const WS_URL = requiredEnv("BRIDGE_WS_URL");
 const MAX_BUFFERED_AMOUNT = 1024 * 1024;
 
+// Terminal colors
+const C = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m", green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m" } as const;
+const P = `${C.cyan}${C.bold}[CYA]${C.reset}`;
+function print(...args: string[]) { process.stdout.write(args.join(" ") + "\n"); }
+
 // Session command log
 function getHomeDir(): string {
   try { return userInfo().homedir; } catch {}
@@ -107,7 +112,7 @@ async function main() {
     env: ptyEnv,
   });
 
-  console.log(`[CYA] Session ${code} — press Ctrl+C to disconnect.`);
+  print(`${P} Session ${C.bold}${code}${C.reset} — press Ctrl+C to disconnect.`);
   initLog(code);
   log(`session_start user=${safeUser()} cwd=${process.cwd()} shell=${shell} elevated=${isElevated()}`);
 
@@ -137,7 +142,7 @@ async function main() {
     if (!msg) return;
 
     if (msg.type === "error") {
-      console.error(`[CYA] Server error: ${msg.message}`);
+      print(`${P} ${C.red}Server error:${C.reset} ${msg.message}`);
       return;
     }
 
@@ -163,10 +168,13 @@ async function main() {
 
     if (msg.type === "command" && msg.id) {
       log(`cmd http: ${msg.cmd}`);
-      process.stdout.write(`[CYA] # ${msg.cmd}\n`);
+      print(`${P} ${C.bold}# ${msg.cmd}${C.reset}`);
       sendOutput(ws, `[CYA] # ${msg.cmd}\n`);
       const result = await runOneShot(msg.cmd);
       log(`cmd_result id=${msg.id} exit=${result.exit_code} out=${result.output.slice(0, 200)}`);
+      if (result.output) process.stdout.write(`${C.dim}${result.output}${C.reset}`);
+      const exitMark = result.exit_code === 0 ? `${C.green}exit ${result.exit_code}` : `${C.red}exit ${result.exit_code}`;
+      print(`\n${P} ${exitMark}${C.reset}`);
       sendJson(ws, { type: "command_result", id: msg.id, ...result });
       return;
     }
@@ -184,7 +192,7 @@ async function main() {
   };
 
   ws.onerror = (event) => {
-    console.error("[CYA] WebSocket error:", event);
+    print(`${P} ${C.red}WebSocket error:${C.reset}`, String(event));
   };
 
   let exiting = false;
@@ -204,7 +212,7 @@ async function main() {
   }
 
   ws.onclose = () => {
-    console.log(`\n[CYA] Connection closed.`);
+    print(`\n${P} Connection closed.${C.reset}`);
     try { term.kill(9); } catch {}
     if (!exiting) process.exit(0);
   };
@@ -307,7 +315,7 @@ function clamp(value: number, min: number, max: number) {
 }
 
 main().catch((error) => {
-  console.error("[CYA] Agent error:", error);
+  print(`${P} ${C.red}Agent error:${C.reset}`, error);
   process.exit(1);
 });
 
