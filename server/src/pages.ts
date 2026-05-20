@@ -38,7 +38,6 @@ a { color: inherit; }
     <div class="muted">Temporary shell access for AI agent. Create a session, run one command on the target machine, then paste the prompt into Claude Code, Codex, OpenClaw, or another AI agent.</div>
     <div class="header line">Use Cases</div>
     <ul>
-      <li>Ask AI to set up a fresh VPS.</li>
       <li>Ask AI to check why your server is running out of disk space at 3am.</li>
       <li>Ask AI to set up a new dev machine while you keep working.</li>
       <li>Give AI temporary access to a throwaway machine, lab box, or recovery environment.</li>

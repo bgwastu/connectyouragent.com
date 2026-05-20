@@ -1,8 +1,31 @@
 import { hostname, userInfo } from "node:os";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type { ProtocolMsg } from "../server/src/protocol.ts";
 
 const WS_URL = requiredEnv("BRIDGE_WS_URL");
 const MAX_BUFFERED_AMOUNT = 1024 * 1024;
+
+// Session command log
+function getHomeDir(): string {
+  try { return userInfo().homedir; } catch {}
+  return process.env.HOME || process.env.USERPROFILE || "/tmp";
+}
+const LOG_DIR = join(getHomeDir(), ".cya", "logs");
+let logPath = "";
+
+function initLog(code: string) {
+  mkdirSync(LOG_DIR, { recursive: true });
+  logPath = join(LOG_DIR, `${code}.log`);
+}
+
+function log(entry: string) {
+  if (!logPath) return;
+  try {
+    const ts = new Date().toISOString();
+    appendFileSync(logPath, `[${ts}] ${entry}\n`);
+  } catch {}
+}
 
 function getInteractiveShell(): string {
   if (process.platform === "win32") return "powershell.exe";
@@ -84,16 +107,13 @@ async function main() {
     env: ptyEnv,
   });
 
-  console.log(`[CYA] Session ${code}`);
-  console.log(`[CYA] Press Ctrl+C to disconnect.`);
+  console.log(`[CYA] Session ${code} — press Ctrl+C to disconnect.`);
+  initLog(code);
+  log(`session_start user=${safeUser()} cwd=${process.cwd()} shell=${shell} elevated=${isElevated()}`);
 
   pump(term.stdout, ws);
   pump(term.stderr, ws);
-  term.exited.then((exitCode) => {
-    sendJson(ws, { type: "bye", reason: `pty_exit:${exitCode}` });
-    ws.close();
-    process.exit(exitCode || 0);
-  });
+  term.exited.then((exitCode) => done(exitCode || 0));
 
   ws.onopen = () => {
     sendJson(ws, {
@@ -122,7 +142,7 @@ async function main() {
     }
 
     if (msg.type === "output" && msg.data.startsWith("[CYA]")) {
-      console.log(msg.data.trimEnd());
+      // Server status messages — already printed our own session info above
       return;
     }
 
@@ -142,36 +162,52 @@ async function main() {
     }
 
     if (msg.type === "command" && msg.id) {
+      log(`cmd http: ${msg.cmd}`);
       const result = await runOneShot(msg.cmd);
+      log(`cmd_result id=${msg.id} exit=${result.exit_code} out=${result.output.slice(0, 200)}`);
       sendJson(ws, { type: "command_result", id: msg.id, ...result });
       return;
     }
 
     if (msg.type === "command") {
+      log(`cmd tty: ${msg.cmd}`);
       term.stdin.write(`${msg.cmd}\r`);
       return;
     }
 
-    if (msg.type === "bye") shutdown(ws, term, 0);
+    if (msg.type === "bye") {
+      ws.close(1000);
+      return;
+    }
   };
 
   ws.onerror = (event) => {
     console.error("[CYA] WebSocket error:", event);
   };
 
-  ws.onclose = (event) => {
-    const detail = event.code || event.reason
-      ? ` code=${event.code} reason=${event.reason || "none"}`
-      : "";
-    console.log(`\n[CYA] Connect Your Agent connection closed.${detail}`);
-    term.kill(15);
-    process.exit(0);
+  let exiting = false;
+
+  function done(code: number) {
+    if (exiting) return;
+    exiting = true;
+    if (ws.readyState === WebSocket.OPEN) {
+      sendJson(ws, { type: "bye", reason: `exit:${code}` });
+      ws.close(1000);
+    }
+    // Give ws.onclose time to fire before force-exit
+    setTimeout(() => {
+      try { term.kill(9); } catch {}
+      process.exit(code);
+    }, 1500);
+  }
+
+  ws.onclose = () => {
+    console.log(`\n[CYA] Connection closed.`);
+    try { term.kill(9); } catch {}
+    if (!exiting) process.exit(0);
   };
 
-  process.on("SIGINT", () => {
-    sendJson(ws, { type: "bye", reason: "user_interrupt" });
-    shutdown(ws, term, 0);
-  });
+  process.on("SIGINT", () => done(0));
 }
 
 async function pump(stream: ReadableStream<Uint8Array>, ws: WebSocket) {
@@ -251,6 +287,11 @@ function isElevated(): boolean {
     } catch {}
   }
 
+  // SUDO_UID is set when process was launched via sudo
+  if (process.env.SUDO_UID) {
+    return true;
+  }
+
   if (process.platform === "win32") {
     return process.env.USERNAME?.toLowerCase() === "administrator" || process.env.CYA_ELEVATED === "1";
   }
@@ -261,12 +302,6 @@ function isElevated(): boolean {
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, Math.floor(value)));
-}
-
-function shutdown(ws: WebSocket, term: Bun.Subprocess<"pipe", "pipe", "pipe">, code: number) {
-  term.kill(15);
-  ws.close();
-  process.exit(code);
 }
 
 main().catch((error) => {
