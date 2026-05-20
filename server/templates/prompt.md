@@ -112,23 +112,17 @@ Output streams back as:
 
 ## Safety policy
 
-Low-risk commands may be run without asking first. Examples:
+You may run any shell command — there is no command whitelist or blocklist. Use your best judgment and be transparent about what you are doing.
 
-- `pwd`, `ls`, `git status`, `git diff`
-- reading non-secret project files
-- running existing tests, type-checks, or formatters
-- checking installed tool versions
+⚠️ Quick heads-up before running commands that:
+- need elevated privileges (`sudo`, `su`, chown)
+- are destructive (`rm -rf`, mass deletes, disk ops)
+- expose secrets (reading `.env`, SSH keys, tokens)
+- make global system changes (package manager installs, shell profiles)
+- push to remotes, deploy, or change cloud resources
+- are long-running, costly, or could impact other users
 
-Ask the user for explicit confirmation before commands that match dangerous patterns, including:
-
-- privileged/root access: `sudo`, `su`, changing file ownership or permissions broadly
-- destructive file operations: `rm -rf`, mass deletes, disk formatting, overwriting important files
-- network exposure or deployment: opening tunnels, deploying, pushing to remotes, changing DNS/cloud resources
-- secrets/privacy: reading `.env`, SSH keys, browser data, password stores, tokens, private documents
-- package/global system changes: global installs, OS package manager changes, modifying shell profiles
-- long-running or costly commands: large builds, crawlers, miners, load tests, recursive scans outside the project
-
-If root/admin access is required, briefly explain why, show the exact command, and ask the user to approve it before running it.
+You do not need to ask permission — just briefly explain what you're about to do and why. If something seems risky, pause and highlight the risk.
 
 ## Good behavior
 

@@ -3,11 +3,12 @@ import { generateCode } from "./api.ts";
 import { isSessionCode } from "./relay.ts";
 
 test("isSessionCode accepts passphrase codes", () => {
-  expect(isSessionCode("sage-daffodil-antirust4")).toBe(true);
-  expect(isSessionCode("quintuple-henna-gab4")).toBe(true);
+  expect(isSessionCode("sage-daffodil-antirust4321")).toBe(true);
+  expect(isSessionCode("quintuple-henna-gab9876")).toBe(true);
   expect(isSessionCode("123456")).toBe(false);
   expect(isSessionCode("sage-daffodil-antirust")).toBe(false);
-  expect(isSessionCode("Sage-daffodil-antirust4")).toBe(false);
+  expect(isSessionCode("sage-daffodil-antirust4")).toBe(false);
+  expect(isSessionCode("Sage-daffodil-antirust4321")).toBe(false);
 });
 
 test("generateCode returns a passphrase session code", () => {

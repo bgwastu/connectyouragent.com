@@ -22,7 +22,7 @@ interface SessionSlot {
 const sessions = new Map<string, SessionSlot>();
 
 export function isSessionCode(value: string): boolean {
-  return /^[a-z]+-[a-z]+-[a-z]+\d$/.test(value);
+  return /^[a-z]+-[a-z]+-[a-z]+\d{4}$/.test(value);
 }
 
 export function getOrCreateSlot(code: string): SessionSlot {

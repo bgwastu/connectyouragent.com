@@ -90,7 +90,7 @@ async function createSession(): Promise<string> {
 
 async function main() {
   const code = process.argv[2] || await createSession();
-  if (!/^[a-z]+-[a-z]+-[a-z]+\d$/.test(code)) throw new Error("Usage: cya-bridge <session passphrase>");
+  if (!/^[a-z]+-[a-z]+-[a-z]+\d{4}$/.test(code)) throw new Error("Usage: cya-bridge <session passphrase>");
 
   const shell = getInteractiveShell();
   const ptyCommand = getPtyCommand(shell);
