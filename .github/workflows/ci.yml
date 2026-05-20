@@ -31,7 +31,14 @@ jobs:
         run: bun run typecheck
 
       - name: Build bridge binaries
+        if: runner.os != 'Windows'
         run: bun run build
+
+      - name: Build Windows bridge binary
+        if: runner.os == 'Windows'
+        run: bun run build:bridge
+        env:
+          BUILD_TARGETS: bun-windows-x64
 
       - name: Run tests
         run: bun test

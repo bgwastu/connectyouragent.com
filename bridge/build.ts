@@ -1,13 +1,25 @@
 #!/usr/bin/env bun
 import { $ } from "bun";
 
-const targets = [
+const allTargets = [
   "bun-linux-x64",
   "bun-linux-arm64",
   "bun-darwin-x64",
   "bun-darwin-arm64",
   "bun-windows-x64",
 ];
+
+const requestedTargets = process.env.BUILD_TARGETS?.split(",")
+  .map((target) => target.trim())
+  .filter(Boolean);
+
+const targets = requestedTargets?.length ? requestedTargets : allTargets;
+
+for (const target of targets) {
+  if (!allTargets.includes(target)) {
+    throw new Error(`Unknown bridge build target: ${target}`);
+  }
+}
 
 const outDir = "./public/bin";
 
