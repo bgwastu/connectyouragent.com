@@ -113,40 +113,6 @@ if [ "$OS" != "linux" ] && [ "$OS" != "darwin" ]; then
   echo "Unsupported OS: \${OS}. Use Linux or macOS."
   exit 1
 fi
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "python3 is required for PTY mode. Attempting install..."
-  if [ "$OS" = "darwin" ]; then
-    if command -v brew >/dev/null 2>&1; then
-      brew install python
-    elif command -v xcode-select >/dev/null 2>&1; then
-      xcode-select --install || true
-    else
-      echo "Please install Python 3, then rerun this command."
-      exit 1
-    fi
-  elif [ "$OS" = "linux" ]; then
-    if command -v apt-get >/dev/null 2>&1; then
-      sudo apt-get update && sudo apt-get install -y python3
-    elif command -v dnf >/dev/null 2>&1; then
-      sudo dnf install -y python3
-    elif command -v yum >/dev/null 2>&1; then
-      sudo yum install -y python3
-    elif command -v apk >/dev/null 2>&1; then
-      sudo apk add --no-cache python3
-    elif command -v pacman >/dev/null 2>&1; then
-      sudo pacman -Sy --noconfirm python
-    elif command -v zypper >/dev/null 2>&1; then
-      sudo zypper install -y python3
-    else
-      echo "No supported package manager found. Please install Python 3."
-      exit 1
-    fi
-  fi
-fi
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "python3 is still unavailable. Please install Python 3."
-  exit 1
-fi
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 echo "Downloading bridge for \${OS}-\${ARCH}..."

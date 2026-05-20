@@ -29,60 +29,6 @@ function getInteractiveShell(): string {
   return "/bin/sh";
 }
 
-function getPtyCommand(shell: string): string[] {
-  if ((process.platform === "darwin" || process.platform === "linux") && commandExists("python3")) {
-    return ["python3", "-c", PYTHON_PTY_BRIDGE, shell];
-  }
-  return [shell];
-}
-
-function commandExists(command: string): boolean {
-  try {
-    const probe = Bun.spawnSync(["/bin/sh", "-lc", `command -v ${command}`], {
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-    return probe.exitCode === 0;
-  } catch {
-    return false;
-  }
-}
-
-const PYTHON_PTY_BRIDGE = String.raw`
-import os, pty, select, signal, subprocess, sys, termios, tty
-
-shell = sys.argv[1]
-master, slave = pty.openpty()
-env = os.environ.copy()
-env.setdefault("TERM", "xterm-256color")
-proc = subprocess.Popen([shell], stdin=slave, stdout=slave, stderr=slave, cwd=os.getcwd(), env=env, close_fds=True)
-os.close(slave)
-
-try:
-    while True:
-        readable, _, _ = select.select([sys.stdin.buffer, master], [], [])
-        if master in readable:
-            try:
-                data = os.read(master, 4096)
-            except OSError:
-                break
-            if not data:
-                break
-            sys.stdout.buffer.write(data)
-            sys.stdout.buffer.flush()
-        if sys.stdin.buffer in readable:
-            data = os.read(sys.stdin.fileno(), 4096)
-            if not data:
-                break
-            os.write(master, data)
-finally:
-    try:
-        proc.terminate()
-    except Exception:
-        pass
-    sys.exit(proc.wait() if proc.poll() is not None else 0)
-`;
-
 function getOneShotShell(cmd: string): string[] {
   if (process.platform === "win32") return ["cmd.exe", "/d", "/s", "/c", cmd];
   return [process.env.SHELL || "/bin/bash", "-lc", cmd];
@@ -93,17 +39,16 @@ async function main() {
   if (!code || !/^[0-9a-f]{12}$/.test(code)) throw new Error("Usage: cya-bridge <session code>");
 
   const shell = getInteractiveShell();
-  const ptyCommand = getPtyCommand(shell);
   const ws = new WebSocket(WS_URL);
-  const ptyEnv: Record<string, string> = { ...process.env, TERM: "xterm-256color", COLUMNS: "100", LINES: "30" } as Record<string, string>;
-  if (process.platform !== "win32") ptyEnv.SHELL = "/bin/sh";
+  const shellEnv: Record<string, string> = { ...process.env, TERM: "xterm-256color" } as Record<string, string>;
+  if (process.platform !== "win32") shellEnv.SHELL = shell;
 
-  const term = Bun.spawn(ptyCommand, {
+  const term = Bun.spawn([shell], {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
     cwd: process.cwd(),
-    env: ptyEnv,
+    env: shellEnv,
   });
 
   print(`${DOT} ${C.bold}${code}${C.reset}  —  Ctrl+C to disconnect`);
