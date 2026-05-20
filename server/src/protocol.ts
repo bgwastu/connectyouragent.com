@@ -1,43 +1,18 @@
-export type Role = "agent";
-
 export interface MsgJoin {
   type: "join";
   session: string;
-  role: Role;
-  meta?: AgentMeta;
+  role: "agent";
+  meta: AgentMeta;
 }
 
 export interface AgentMeta {
-  os: string;
-  arch: string;
   host: string;
-  user: string;
-  cwd?: string;
-  shell?: string;
-  elevated?: boolean;
 }
 
 export interface MsgCommand {
   type: "command";
   cmd: string;
-  id?: string; // for HTTP correlation
-}
-
-export interface MsgInput {
-  type: "input";
-  data: string;
-  encoding?: "utf8" | "base64";
-}
-
-export interface MsgResize {
-  type: "resize";
-  cols: number;
-  rows: number;
-}
-
-export interface MsgSignal {
-  type: "signal";
-  name: "SIGINT" | "SIGTERM" | "SIGKILL" | "SIGHUP" | "SIGQUIT";
+  id?: string;
 }
 
 export interface MsgOutput {
@@ -64,21 +39,24 @@ export interface MsgBye {
   reason?: string;
 }
 
-export type ProtocolMsg = MsgJoin | MsgCommand | MsgInput | MsgResize | MsgSignal | MsgOutput | MsgCommandResult | MsgError | MsgBye;
+export type ProtocolMsg = MsgJoin | MsgCommand | MsgOutput | MsgCommandResult | MsgError | MsgBye;
 
 export interface SessionInfo {
   code: string;
   status: "waiting" | "active" | "closed";
-  agent_os?: string;
-  agent_arch?: string;
-  agent_host?: string;
-  agent_user?: string;
-  agent_cwd?: string;
-  agent_shell?: string;
+  host: string;
   created_at: string;
 }
 
 export interface CommandResult {
   output: string;
   exit_code: number;
+}
+
+export function parseMessage(raw: string): ProtocolMsg | null {
+  try {
+    return JSON.parse(raw) as ProtocolMsg;
+  } catch {
+    return null;
+  }
 }

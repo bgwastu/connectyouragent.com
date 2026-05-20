@@ -1,36 +1,15 @@
-import { hostname, userInfo } from "node:os";
-import { appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { hostname } from "node:os";
 import type { ProtocolMsg } from "../server/src/protocol.ts";
+import { parseMessage } from "../server/src/protocol.ts";
 
 const WS_URL = requiredEnv("BRIDGE_WS_URL");
 const MAX_BUFFERED_AMOUNT = 1024 * 1024;
 
-// Terminal colors
-const C = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m", green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m" } as const;
-const P = `${C.cyan}${C.bold}[CYA]${C.reset}`;
+// ANSI
+const C = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m", green: "\x1b[32m", red: "\x1b[31m" } as const;
+const DOT = `${C.cyan}●${C.reset}`;
+const ARROW = `${C.cyan}▶${C.reset}`;
 function print(...args: string[]) { process.stdout.write(args.join(" ") + "\n"); }
-
-// Session command log
-function getHomeDir(): string {
-  try { return userInfo().homedir; } catch {}
-  return process.env.HOME || process.env.USERPROFILE || "/tmp";
-}
-const LOG_DIR = join(getHomeDir(), ".cya", "logs");
-let logPath = "";
-
-function initLog(code: string) {
-  mkdirSync(LOG_DIR, { recursive: true });
-  logPath = join(LOG_DIR, `${code}.log`);
-}
-
-function log(entry: string) {
-  if (!logPath) return;
-  try {
-    const ts = new Date().toISOString();
-    appendFileSync(logPath, `[${ts}] ${entry}\n`);
-  } catch {}
-}
 
 function getInteractiveShell(): string {
   if (process.platform === "win32") return "powershell.exe";
@@ -84,26 +63,16 @@ function getOneShotShell(cmd: string): string[] {
   return [process.env.SHELL || "/bin/bash", "-lc", cmd];
 }
 
-async function createSession(): Promise<string> {
-  const apiUrl = WS_URL.replace("wss:", "https:").replace("ws:", "http:").replace(/\/ws$/, "/api/session");
-  const response = await fetch(apiUrl);
-  if (!response.ok) throw new Error(`Unable to create session: ${response.status}`);
-  const body = await response.json() as { code?: string };
-  if (!body.code) throw new Error("Session API did not return a code");
-  return body.code;
-}
-
 async function main() {
-  const code = process.argv[2] || await createSession();
-  if (!/^[0-9a-f]{12}$/.test(code)) throw new Error("Usage: cya-bridge <session code>");
+  const code = process.argv[2];
+  if (!code || !/^[0-9a-f]{12}$/.test(code)) throw new Error("Usage: cya-bridge <session code>");
 
   const shell = getInteractiveShell();
   const ptyCommand = getPtyCommand(shell);
   const ws = new WebSocket(WS_URL);
   const ptyEnv: Record<string, string> = { ...process.env, TERM: "xterm-256color", COLUMNS: "100", LINES: "30" } as Record<string, string>;
-  if (process.platform !== "win32") {
-    ptyEnv.SHELL = "/bin/sh";
-  }
+  if (process.platform !== "win32") ptyEnv.SHELL = "/bin/sh";
+
   const term = Bun.spawn(ptyCommand, {
     stdin: "pipe",
     stdout: "pipe",
@@ -112,9 +81,7 @@ async function main() {
     env: ptyEnv,
   });
 
-  print(`${P} Session ${C.bold}${code}${C.reset} — press Ctrl+C to disconnect.`);
-  initLog(code);
-  log(`session_start user=${safeUser()} cwd=${process.cwd()} shell=${shell} elevated=${isElevated()}`);
+  print(`${DOT} ${C.bold}${code}${C.reset}  —  Ctrl+C to disconnect`);
 
   pump(term.stdout, ws);
   pump(term.stderr, ws);
@@ -125,15 +92,7 @@ async function main() {
       type: "join",
       session: code,
       role: "agent",
-      meta: {
-        os: process.platform,
-        arch: process.arch,
-        host: hostname(),
-        user: safeUser(),
-        cwd: process.cwd(),
-        shell,
-        elevated: isElevated(),
-      },
+      meta: { host: hostname() },
     });
   };
 
@@ -142,57 +101,35 @@ async function main() {
     if (!msg) return;
 
     if (msg.type === "error") {
-      print(`${P} ${C.red}Server error:${C.reset} ${msg.message}`);
-      return;
-    }
-
-    if (msg.type === "output" && msg.data.startsWith("[CYA]")) {
-      // Server status messages — already printed our own session info above
-      return;
-    }
-
-    if (msg.type === "input") {
-      term.stdin.write(decodePayload(msg.data, msg.encoding));
-      return;
-    }
-
-    if (msg.type === "resize") {
-      sendOutput(ws, `\r\n[CYA] Resize requested: ${clamp(msg.cols, 20, 300)}x${clamp(msg.rows, 5, 100)}\r\n`);
-      return;
-    }
-
-    if (msg.type === "signal") {
-      writeSignal(term, msg.name);
+      print(`${DOT} ${C.red}Server error:${C.reset} ${msg.message}`);
       return;
     }
 
     if (msg.type === "command" && msg.id) {
-      log(`cmd http: ${msg.cmd}`);
-      print(`${P} ${C.bold}# ${msg.cmd}${C.reset}`);
-      sendOutput(ws, `[CYA] # ${msg.cmd}\n`);
+      print(`\n${ARROW} ${C.bold}${msg.cmd}${C.reset}`);
       const result = await runOneShot(msg.cmd);
-      log(`cmd_result id=${msg.id} exit=${result.exit_code} out=${result.output.slice(0, 200)}`);
-      if (result.output) process.stdout.write(`${C.dim}${result.output}${C.reset}`);
-      const exitMark = result.exit_code === 0 ? `${C.green}exit ${result.exit_code}` : `${C.red}exit ${result.exit_code}`;
-      print(`\n${P} ${exitMark}${C.reset}`);
+      if (result.output) {
+        const lines = result.output.split("\n");
+        for (const line of lines) process.stdout.write(`${C.dim}  ${line}${C.reset}\n`);
+      }
+      const mark = result.exit_code === 0
+        ? `${C.green}  ✓ ${result.exit_code}${C.reset}`
+        : `${C.red}  ✗ ${result.exit_code}${C.reset}`;
+      print(mark);
       sendJson(ws, { type: "command_result", id: msg.id, ...result });
-      return;
-    }
-
-    if (msg.type === "command") {
-      log(`cmd tty: ${msg.cmd}`);
-      term.stdin.write(`${msg.cmd}\r`);
       return;
     }
 
     if (msg.type === "bye") {
       ws.close(1000);
-      return;
     }
   };
 
-  ws.onerror = (event) => {
-    print(`${P} ${C.red}WebSocket error:${C.reset}`, String(event));
+  ws.onerror = () => {};
+  ws.onclose = () => {
+    print(`\n${DOT} Connection closed.${C.reset}`);
+    try { term.kill(9); } catch {}
+    if (!exiting) process.exit(0);
   };
 
   let exiting = false;
@@ -204,20 +141,14 @@ async function main() {
       sendJson(ws, { type: "bye", reason: `exit:${code}` });
       ws.close(1000);
     }
-    // Give ws.onclose time to fire before force-exit
     setTimeout(() => {
       try { term.kill(9); } catch {}
       process.exit(code);
     }, 1500);
   }
 
-  ws.onclose = () => {
-    print(`\n${P} Connection closed.${C.reset}`);
-    try { term.kill(9); } catch {}
-    if (!exiting) process.exit(0);
-  };
-
   process.on("SIGINT", () => done(0));
+  process.on("SIGTERM", () => done(0));
 }
 
 async function pump(stream: ReadableStream<Uint8Array>, ws: WebSocket) {
@@ -256,71 +187,13 @@ function sendJson(ws: WebSocket, value: unknown) {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(value));
 }
 
-function decodePayload(data: string, encoding?: "utf8" | "base64") {
-  if (encoding === "base64") return Buffer.from(data, "base64").toString("utf8");
-  return data;
-}
-
-function writeSignal(term: Bun.Subprocess<"pipe", "pipe", "pipe">, signal: string) {
-  if (signal === "SIGINT") term.stdin.write("\x03");
-  else if (signal === "SIGQUIT") term.stdin.write("\x1c");
-  else if (signal === "SIGHUP") term.stdin.write("\x04");
-  else term.kill(signal as Parameters<typeof term.kill>[0]);
-}
-
-function parseMessage(raw: string): ProtocolMsg | null {
-  try {
-    return JSON.parse(raw) as ProtocolMsg;
-  } catch {
-    return null;
-  }
-}
-
-function safeUser(): string {
-  try {
-    return userInfo().username;
-  } catch {
-    return process.env.USER || process.env.USERNAME || "unknown";
-  }
-}
-
-function isElevated(): boolean {
-  // userInfo() from node:os works in both Bun dev and compiled mode
-  try {
-    return userInfo().uid === 0;
-  } catch {}
-
-  // Fallback for Bun dev mode
-  if (typeof process.getuid === "function") {
-    try {
-      return process.getuid() === 0;
-    } catch {}
-  }
-
-  // SUDO_UID is set when process was launched via sudo
-  if (process.env.SUDO_UID) {
-    return true;
-  }
-
-  if (process.platform === "win32") {
-    return process.env.USERNAME?.toLowerCase() === "administrator" || process.env.CYA_ELEVATED === "1";
-  }
-
-  return false;
-}
-
-function clamp(value: number, min: number, max: number) {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, Math.floor(value)));
-}
-
-main().catch((error) => {
-  print(`${P} ${C.red}Agent error:${C.reset}`, error);
-  process.exit(1);
-});
-
 function requiredEnv(key: string): string {
   const value = process.env[key];
   if (!value) throw new Error(`Missing env var: ${key}`);
   return value;
 }
+
+main().catch((error) => {
+  print(`${DOT} ${C.red}Error:${C.reset} ${error}`);
+  process.exit(1);
+});

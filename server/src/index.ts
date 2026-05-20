@@ -1,24 +1,17 @@
 import type { ServerWebSocket } from "bun";
-import { PORT, HOST, CLEANUP_INTERVAL } from "./config.ts";
-import { cleanupStaleSlots, handleJoin, handleMessage, handleDisconnect } from "./relay.ts";
+import {
+  PORT,
+  HOST,
+  CLEANUP_INTERVAL,
+  SESSION_IDLE_TIMEOUT,
+} from "./config.ts";
+import * as store from "./store.ts";
+import { handleJoin, handleMessage, handleDisconnect } from "./relay.ts";
 import { apiHandler } from "./api.ts";
 import { pagesHandler } from "./pages.ts";
-import { cleanupIdleWaitingSessions } from "./db.ts";
-import { SESSION_IDLE_TIMEOUT } from "./config.ts";
+import { NO_CACHE } from "./http.ts";
 
-// Static file serving for bootstrap.sh and CYA bridge binaries
-const NO_CACHE = {
-  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-  "CDN-Cache-Control": "no-store",
-  "Surrogate-Control": "no-store",
-} as const;
 async function staticHandler(path: string): Promise<Response | null> {
-  if (path === "/bootstrap.sh") {
-    const file = Bun.file("./public/bootstrap.sh");
-    if (await file.exists()) {
-      return new Response(file, { headers: { "Content-Type": "text/plain", ...NO_CACHE } });
-    }
-  }
   if (path.startsWith("/bin/")) {
     const fileName = path.slice(5);
     if (/^[a-zA-Z0-9_.-]+$/.test(fileName)) {
@@ -39,33 +32,33 @@ const server = Bun.serve({
   fetch(req, server) {
     const url = new URL(req.url);
 
-    // WebSocket upgrade
     if (url.pathname === "/ws") {
       const upgraded = server.upgrade(req);
       if (upgraded) return undefined as any;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
 
-    // API routes
     const apiRes = apiHandler(req, url);
     if (apiRes) return apiRes;
 
-    // Page routes
     const pageRes = pagesHandler(req, url);
     if (pageRes) return pageRes;
 
-    // Static files
-    return staticHandler(url.pathname).then((res) => res || new Response("Not found", { status: 404 }));
+    return staticHandler(url.pathname).then(
+      (res) => res || new Response("Not found", { status: 404 }),
+    );
   },
   websocket: {
-    open(ws: ServerWebSocket<unknown>) {},
+    open(_ws: ServerWebSocket<unknown>) {},
     message(ws: ServerWebSocket<unknown>, message) {
-      const text = typeof message === "string" ? message : new TextDecoder().decode(message);
+      const text =
+        typeof message === "string"
+          ? message
+          : new TextDecoder().decode(message);
       let msg: any;
       try {
         msg = JSON.parse(text);
       } catch {
-        ws.send(JSON.stringify({ type: "error", message: "Invalid JSON" }));
         return;
       }
       if (msg.type === "join") {
@@ -80,13 +73,12 @@ const server = Bun.serve({
   },
 });
 
-console.log(`Connect Your Agent (CYA) listening on ${HOST}:${PORT}`);
-console.log(`CYA routes: /, /c/{code}, /c/{code}/prompt, /api/session/{code}/run?cmd=...`);
+console.log(`listening on ${HOST}:${PORT}`);
 
-// Cleanup timer
 setInterval(() => {
-  const closed = cleanupIdleWaitingSessions(SESSION_IDLE_TIMEOUT);
-  const staleSlots = cleanupStaleSlots();
-  if (closed > 0) console.log(`Cleaned up ${closed} stale sessions`);
-  if (staleSlots.length > 0) console.log(`Closed stale in-memory sessions: ${staleSlots.join(", ")}`);
+  const closed = store.cleanup(SESSION_IDLE_TIMEOUT);
+  if (closed.length > 0)
+    console.log(
+      `Cleaned up ${closed.length} stale sessions: ${closed.join(", ")}`,
+    );
 }, CLEANUP_INTERVAL * 1000);

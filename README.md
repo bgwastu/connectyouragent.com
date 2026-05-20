@@ -1,11 +1,9 @@
-# Connect Your Agent (CYA)
+# CYA — Connect Your Agent
 
-Temporary shell access for any AI agent.
-
-Run with Docker:
+Temporary shell access for AI agents. No logs, no persistence, privacy-first.
 
 ```sh
-docker build -t cya . && docker run --rm -p 8765:8765 -v "$PWD/data:/app/data" -e BASE_URL=http://localhost:8765 -e WS_URL=ws://localhost:8765/ws cya
+docker build -t cya . && docker run --rm -p 8765:8765 -e BASE_URL=http://localhost:8765 cya
 ```
 
 Open http://localhost:8765 and create a session.
