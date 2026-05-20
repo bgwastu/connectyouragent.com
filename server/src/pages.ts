@@ -15,11 +15,14 @@ export function pagesHandler(req: Request, url: URL): Response | null {
 
   const connectMatch = path.match(/^\/c\/([0-9a-f]{12})$/);
   if (connectMatch) {
+    const code = connectMatch[1]!;
     const acceptsHtml =
       req.headers.get("accept")?.includes("text/html") ?? false;
-    if (acceptsHtml && url.searchParams.get("raw") !== "1")
+    if (acceptsHtml && url.searchParams.get("raw") !== "1") {
+      if (!store.get(code)) return Response.redirect("/", 302);
       return html(indexHtml);
-    return connectScript(connectMatch[1]!, effectiveOrigin(req));
+    }
+    return connectScript(code, effectiveOrigin(req));
   }
 
   const promptMatch = path.match(/^\/c\/([0-9a-f]{12})\/prompt(?:\.md)?$/);

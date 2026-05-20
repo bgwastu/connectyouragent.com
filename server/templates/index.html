@@ -182,6 +182,10 @@
 
       async function poll() {
         var r = await fetch(BASE + "/api/session/" + CODE);
+        if (r.status === 404) {
+          location.replace("/");
+          return;
+        }
         if (!r.ok) return; // network hiccup, retry next poll
         var session = await r.json();
         if (session.status === "closed") {
