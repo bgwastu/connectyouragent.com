@@ -2,6 +2,14 @@ import { buildPrompt, toSessionResponse } from "./api.ts";
 import { BASE_URL } from "./config.ts";
 import { getSession } from "./db.ts";
 
+/** Detect the effective origin (protocol + host) behind TLS-terminating proxies. */
+function effectiveOrigin(req: Request): string {
+  const proto =
+    req.headers.get("X-Forwarded-Proto") === "https" ? "https" : "http";
+  const host = req.headers.get("Host") || "localhost";
+  return `${proto}://${host}`;
+}
+
 const HTML_TEMPLATE = `<!doctype html>
 <html lang="en">
 <head>
@@ -17,6 +25,7 @@ main { max-width: 640px; margin: 36px auto; padding: 0 18px; }
 .muted { color: #666; }
 .small { font-size: 12px; }
 .line { border-top: 1px solid #eee; padding-top: 12px; }
+ul { list-style-type: disc; padding-left: 20px; margin: 0px }
 pre { margin: 0; padding: 12px; overflow-x: auto; white-space: pre-wrap; background: #fafafa; border: 1px solid #eee; border-radius: 4px; }
 button { min-height: 32px; padding-left: 10px; padding-right: 10px; }
 a { color: inherit; }
@@ -25,14 +34,14 @@ a { color: inherit; }
 <body>
 <main>
   <div id="home" class="stack">
-    <div class="header">Connect Your Agent (CYA)</div>
-    <div class="muted">Temporary shell access for any AI agent. Create a session, run one command on the target machine, then paste the prompt into Claude Code, Codex, OpenClaw, or another AI agent.</div>
+    <div class="header">Connect Your Agent</div>
+    <div class="muted">Temporary shell access for AI agent. Create a session, run one command on the target machine, then paste the prompt into Claude Code, Codex, OpenClaw, or another AI agent.</div>
     <div class="header line">Use Cases</div>
     <ul>
-      <li>Let an AI inspect and fix a local project without pushing it anywhere.</li>
-      <li>Help a family member's computer while they stay in control and can stop it anytime.</li>
-      <li>Set up a fresh VPS before your normal SSH keys, packages, and dotfiles are ready.</li>
-      <li>Give temporary access to a throwaway machine, lab box, or recovery environment.</li>
+      <li>Ask AI to set up a fresh VPS.</li>
+      <li>Ask AI to check why your server is running out of disk space at 3am.</li>
+      <li>Ask AI to set up a new dev machine while you keep working.</li>
+      <li>Give AI temporary access to a throwaway machine, lab box, or recovery environment.</li>
     </ul>
     <div class="muted">Supported OS: macOS Intel/Apple Silicon, Linux x64/arm64, Windows x64.</div>
     <button id="create-session">Create Session</button>
@@ -166,10 +175,12 @@ export function pagesHandler(req: Request, url: URL): Response | null {
       req.headers.get("accept")?.includes("text/html") ?? false;
     if (acceptsHtml && url.searchParams.get("raw") !== "1")
       return html(HTML_TEMPLATE);
-    return connectScript(connectMatch[1]!, url.origin);
+    return connectScript(connectMatch[1]!, effectiveOrigin(req));
   }
 
-  const promptMatch = path.match(/^\/c\/([a-z]+-[a-z]+-[a-z]+\d)\/prompt(?:\.md)?$/);
+  const promptMatch = path.match(
+    /^\/c\/([a-z]+-[a-z]+-[a-z]+\d)\/prompt(?:\.md)?$/,
+  );
   if (promptMatch) {
     const session = getSession(promptMatch[1]!);
     if (!session) return Response.json({ error: "Not found" }, { status: 404 });
@@ -256,7 +267,7 @@ echo "[CYA] Downloading agent for \${OS}-\${ARCH}..."
 curl -fsSL "\${BASE_URL}/bin/\${BIN_NAME}" -o "\${TMPDIR}/\${BIN_NAME}"
 chmod +x "\${TMPDIR}/\${BIN_NAME}"
 echo "[CYA] Starting transparent Connect Your Agent session \${CODE}. Press Ctrl+C to stop."
-BRIDGE_WS_URL="\${BASE_URL/https:/wss:}/ws" "\${TMPDIR}/\${BIN_NAME}" "\${CODE}"
+BRIDGE_WS_URL="\${BASE_URL/http/ws}/ws" "\${TMPDIR}/\${BIN_NAME}" "\${CODE}"
 `;
   return new Response(script, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },

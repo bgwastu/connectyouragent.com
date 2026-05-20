@@ -35,4 +35,4 @@ curl -fsSL "${BASE_URL}/bin/${BIN_NAME}" -o "${TMPDIR}/${BIN_NAME}"
 chmod +x "${TMPDIR}/${BIN_NAME}"
 
 echo "Starting agent..."
-BRIDGE_WS_URL="${BASE_URL/https:/wss:}/ws" "${TMPDIR}/${BIN_NAME}" "$CODE"
+BRIDGE_WS_URL="${BASE_URL/http/ws}/ws" "${TMPDIR}/${BIN_NAME}" "$CODE"
