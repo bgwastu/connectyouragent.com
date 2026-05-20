@@ -153,15 +153,29 @@ function renderTemplate(template: string, values: Record<string, string>) {
   return template.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key) => values[key] ?? "");
 }
 
+// Cache-busting headers (CDN + browser)
+const NO_CACHE = {
+  "Content-Type": "application/json; charset=utf-8",
+  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+  "CDN-Cache-Control": "no-store",
+  "Surrogate-Control": "no-store",
+  "Pragma": "no-cache",
+  "Expires": "0",
+} as const;
+
 function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-  });
+  return new Response(JSON.stringify(data), { status, headers: NO_CACHE });
 }
 
 function markdown(data: string): Response {
-  return new Response(data, { headers: { "Content-Type": "text/markdown; charset=utf-8" } });
+  return new Response(data, {
+    headers: {
+      "Content-Type": "text/markdown; charset=utf-8",
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      "CDN-Cache-Control": "no-store",
+      "Surrogate-Control": "no-store",
+    },
+  });
 }
 
 function notFound(): Response {

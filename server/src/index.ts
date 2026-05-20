@@ -7,12 +7,16 @@ import { cleanupIdleWaitingSessions } from "./db.ts";
 import { SESSION_IDLE_TIMEOUT } from "./config.ts";
 
 // Static file serving for bootstrap.sh and CYA bridge binaries
-const NO_STORE = { "Cache-Control": "no-store" } as const;
+const NO_CACHE = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+  "CDN-Cache-Control": "no-store",
+  "Surrogate-Control": "no-store",
+} as const;
 async function staticHandler(path: string): Promise<Response | null> {
   if (path === "/bootstrap.sh") {
     const file = Bun.file("./public/bootstrap.sh");
     if (await file.exists()) {
-      return new Response(file, { headers: { "Content-Type": "text/plain", ...NO_STORE } });
+      return new Response(file, { headers: { "Content-Type": "text/plain", ...NO_CACHE } });
     }
   }
   if (path.startsWith("/bin/")) {
@@ -21,7 +25,7 @@ async function staticHandler(path: string): Promise<Response | null> {
       const file = Bun.file(`./public/bin/${fileName}`);
       if (await file.exists()) {
         return new Response(file, {
-          headers: { "Content-Type": "application/octet-stream", ...NO_STORE },
+          headers: { "Content-Type": "application/octet-stream", ...NO_CACHE },
         });
       }
     }
