@@ -29,7 +29,6 @@ Start by briefly telling the user what you can do, then inspect the environment 
 ```
 pwd
 uname -a
-git status --short
 command -v bun node npm pnpm yarn python3 python pip3 pip git gh docker curl jq rg || true
 ```
 
