@@ -5,6 +5,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   agent_arch TEXT,
   agent_host TEXT,
   agent_user TEXT,
+  agent_cwd TEXT,
+  agent_shell TEXT,
+  agent_elevated INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
   closed_at TEXT

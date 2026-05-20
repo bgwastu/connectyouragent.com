@@ -1,365 +1,242 @@
-import { BASE_URL, WS_URL } from "./config.ts";
-
-const CUA_DRIVER_DOCS = "https://github.com/trycua/cua/tree/main/libs/cua-driver";
-const AGENT_BROWSER_DOCS = "https://github.com/vercel-labs/agent-browser";
+import { buildPrompt, toSessionResponse } from "./api.ts";
+import { BASE_URL } from "./config.ts";
+import { getSession } from "./db.ts";
 
 const HTML_TEMPLATE = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width">
-<title>CYA \u2014 Connect Your Bridge</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect Your Agent</title>
 <style>
-body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; line-height: 1.5; }
-button { padding: 5px 12px; cursor: pointer; font-size: 13px; margin-left: 4px; }
-pre { background: #f5f5f5; padding: 12px; overflow-x: auto; font-size: 13px; }
-ul { padding-left: 20px; }
-li { margin: 8px 0; }
+body { margin: 0; background: #fff; color: #111; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+[hidden] { display: none !important; }
+main { max-width: 640px; margin: 36px auto; padding: 0 18px; }
+.stack { display: grid; gap: 12px; }
+.header { font-weight: 700; }
+.muted { color: #666; }
+.small { font-size: 12px; }
+.line { border-top: 1px solid #eee; padding-top: 12px; }
+pre { margin: 0; padding: 12px; overflow-x: auto; white-space: pre-wrap; background: #fafafa; border: 1px solid #eee; border-radius: 4px; }
+button { min-height: 32px; padding-left: 10px; padding-right: 10px; }
+a { color: inherit; }
 </style>
 </head>
 <body>
+<main>
+  <div id="home" class="stack">
+    <div class="header">Connect Your Agent (CYA)</div>
+    <div class="muted">Temporary shell access for any AI agent. Create a session, run one command on the target machine, then paste the prompt into Claude Code, Codex, OpenClaw, or another AI agent.</div>
+    <div class="header line">Use Cases</div>
+    <ul>
+      <li>Let an AI inspect and fix a local project without pushing it anywhere.</li>
+      <li>Help a family member's computer while they stay in control and can stop it anytime.</li>
+      <li>Set up a fresh VPS before your normal SSH keys, packages, and dotfiles are ready.</li>
+      <li>Give temporary access to a throwaway machine, lab box, or recovery environment.</li>
+    </ul>
+    <div class="muted">Supported OS: macOS Intel/Apple Silicon, Linux x64/arm64, Windows x64.</div>
+    <button id="create-session">Create Session</button>
+  </div>
 
-<div id="home">
-<p>Generating session...</p>
-</div>
+  <div id="session" class="stack" hidden>
+    <div class="small"><a href="/">Go to Home</a></div>
 
-<div id="session" hidden>
-<div id="waiting">
-<p>Waiting for connection...</p>
-<p>Run this command on the target machine:</p>
-<pre id="cmd"></pre>
-</div>
+    <div id="waiting" class="stack line">
+      <div>Run on the target machine:</div>
+      <pre id="cmd"></pre>
+      <button id="copy-cmd">Copy</button>
+      <div><strong>Tip:</strong> Run it normally for least privilege. Use sudo only if you want the AI agent to operate as elevated/root.</div>
+      <div class="muted">Waiting for connection...</div>
+      <div id="expiry" class="muted"></div>
+    </div>
 
-<div id="active" hidden>
-<p><strong>Connected.</strong></p>
-<p id="close-hint"></p>
-<button id="disconnect">Disconnect</button>
-
-<h3>Capabilities:</h3>
-<ul>
-<li>Shell access</li>
-<li id="desktop-li" hidden>
-  Full desktop automation
-  <span id="desktop-controls"></span>
-</li>
-<li id="browser-li">
-  Browser automation
-  <span id="browser-controls"></span>
-</li>
-</ul>
-
-<p>Give this prompt to your AI assistant:</p>
-<pre id="prompt"></pre>
-</div>
-</div>
+    <div id="active" class="stack line" hidden>
+      <div>Connected</div>
+      <div id="status" class="muted"></div>
+      <button id="disconnect">Disconnect</button>
+      <div class="line">Paste this into any AI coding agent to start controlling your computer:</div>
+      <pre id="short-prompt"></pre>
+      <button id="copy-prompt">Copy Prompt</button>
+    </div>
+  </div>
+</main>
 
 <script>
-const BASE = "${BASE_URL}";
-const WS = "${WS_URL}";
-const CUA_DRIVER_DOCS = "${CUA_DRIVER_DOCS}";
-const AGENT_BROWSER_DOCS = "${AGENT_BROWSER_DOCS}";
-const path = location.pathname;
-const CODE = path === "/" ? null : path.slice(1);
+const BASE = location.origin;
+const match = location.pathname.match(new RegExp("^/c/(\\\\d{6})"));
+const CODE = match ? match[1] : null;
 
 function $(id) { return document.getElementById(id); }
+function promptUrl(code) { return BASE + "/c/" + code + "/prompt.md"; }
+function connectCommand(code) { return "curl -fsSL " + BASE + "/c/" + code + " | bash"; }
+function expiresAt(session) { return new Date(session.created_at.replace(" ", "T") + "Z").getTime() + 5 * 60 * 1000; }
 
-function detectBrowserOS() {
-  const ua = navigator.userAgent;
-  if (ua.includes("Windows")) return "windows";
-  if (ua.includes("Mac")) return "mac";
-  if (ua.includes("Linux")) return "linux";
-  return "unix";
+async function copyText(id, button, label) {
+  await navigator.clipboard.writeText($(id).textContent);
+  const old = button.textContent;
+  button.textContent = label;
+  button.disabled = true;
+  setTimeout(function() { button.textContent = old; button.disabled = false; }, 1200);
 }
 
-function showCommand(code, os) {
-  let cmd = "";
-  if (os === "windows") {
-    cmd = 'powershell -Command "$code=' + code + '; \\\n  $tmp=$env:TEMP; \\\n  irm ' + BASE + '/bin/bridge-agent-windows-x64.exe -OutFile \\"$tmp\\\\cya.exe\\"; \\\n  & \\"$tmp\\\\cya.exe\\" $code"';
-  } else {
-    cmd = "curl -fsSL " + BASE + "/connect/" + code + " | bash";
-  }
-  $("cmd").textContent = cmd;
-}
-
-function renderFeatureControls(containerId, feature, session) {
-  const container = $(containerId);
-  const enabled = session.features[feature];
-  container.innerHTML = "";
-
-  if (!enabled) {
-    const btn = document.createElement("button");
-    btn.textContent = "Install & Connect";
-    btn.onclick = function() {
-      btn.disabled = true;
-      btn.textContent = "Installing...";
-      fetch(BASE + "/api/session/" + CODE + "/features", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({[feature]: true})
-      }).then(function() {
-        poll();
-      }).catch(function() {
-        btn.disabled = false;
-        btn.textContent = "Install & Connect";
-      });
-    };
-    container.appendChild(btn);
-  } else {
-    const disableBtn = document.createElement("button");
-    disableBtn.textContent = "Disable";
-    disableBtn.onclick = function() {
-      disableBtn.disabled = true;
-      fetch(BASE + "/api/session/" + CODE + "/features", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({[feature]: false})
-      }).then(function() {
-        poll();
-      }).catch(function() {
-        disableBtn.disabled = false;
-      });
-    };
-    container.appendChild(disableBtn);
-
-    const uninstallBtn = document.createElement("button");
-    uninstallBtn.textContent = "Disable & Uninstall";
-    uninstallBtn.onclick = function() {
-      uninstallBtn.disabled = true;
-      fetch(BASE + "/api/session/" + CODE + "/features", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({[feature]: false})
-      }).then(function() {
-        poll();
-      }).catch(function() {
-        uninstallBtn.disabled = false;
-      });
-    };
-    container.appendChild(uninstallBtn);
-  }
+function showWaiting(session) {
+  $("waiting").hidden = false;
+  $("active").hidden = true;
+  $("cmd").textContent = connectCommand(session.code);
+  updateExpiry(session);
 }
 
 function showActive(session) {
   $("waiting").hidden = true;
   $("active").hidden = false;
-
-  const hint = session.agent_os === "win32"
-    ? "Close the terminal window to disconnect"
-    : "Press Ctrl+C in the terminal to disconnect";
-  $("close-hint").textContent = hint;
-
-  // Desktop automation (macOS only)
-  if (session.agent_os === "darwin") {
-    $("desktop-li").hidden = false;
-    renderFeatureControls("desktop-controls", "desktop", session);
-  } else {
-    $("desktop-li").hidden = true;
-  }
-
-  // Browser automation (all platforms)
-  renderFeatureControls("browser-controls", "browser", session);
-
-  $("prompt").textContent = buildPrompt(session);
+  $("status").textContent = [
+    (session.agent_user || "unknown") + "@" + (session.agent_host || "unknown"),
+    (session.agent_os || "unknown") + "/" + (session.agent_arch || "unknown"),
+    "CWD " + (session.agent_cwd || "unknown"),
+    "Elevated/root: " + (session.agent_elevated ? "yes" : "no")
+  ].join(" · ");
+  $("short-prompt").textContent = "Fetch this prompt: " + promptUrl(session.code);
 }
 
-function buildPrompt(session) {
-  let p = 'You have been given access to a remote machine via CYA (Connect Your Bridge).\\n\\n';
-  p += 'Session code: ' + session.code + '\\n\\n';
-
-  p += 'Connection:\\n';
-  p += 'You are connected to the remote machine via WebSocket at ' + WS + '.\\n';
-  p += 'The bridge running on the remote machine maintains a persistent shell session.\\n';
-  p += 'All commands you send are executed on that machine and output is streamed back in real-time.\\n\\n';
-
-  p += 'API:\\n\\n';
-
-  p += '1. Shell commands (HTTP one-shot):\\n';
-  p += '   POST ' + BASE + '/api/session/' + session.code + '/cmd\\n';
-  p += '   Content-Type: application/json\\n';
-  p += '   Body: {"cmd": "ls -la"}\\n';
-  p += '   Response: {"output": "...", "exit_code": 0}\\n\\n';
-
-  p += '2. Shell commands (WebSocket streaming):\\n';
-  p += '   Send: {"type": "command", "cmd": "ls -la"}\\n';
-  p += '   Receive: {"type": "output", "data": "..."}\\n\\n';
-
-  p += '3. Feature control:\\n';
-  p += '   Enable/disable features via HTTP:\\n';
-  p += '   POST ' + BASE + '/api/session/' + session.code + '/features\\n';
-  p += '   Body: {"desktop": true} or {"browser": true}\\n';
-  p += '   Or via WebSocket: {"type": "enable_feature", "feature": "desktop", "enabled": true}\\n\\n';
-
-  p += '4. WebSocket message reference:\\n';
-  p += '   {"type": "join", "session": "' + session.code + '", "role": "client"}\\n';
-  p += '   {"type": "command", "cmd": "ls -la"}\\n';
-  p += '   {"type": "output", "data": "..."}\\n';
-  p += '   {"type": "enable_feature", "feature": "desktop", "enabled": true}\\n';
-  p += '   {"type": "feature_status", "features": {"shell": true, "desktop": true, ...}}\\n';
-  p += '   {"type": "computer_use", "id": "1", "action": "capture", "mode": "som"}\\n';
-  p += '   {"type": "computer_use_result", "id": "1", "result": {...}}\\n';
-  p += '   {"type": "browser_use", "id": "1", "cmd": "open https://example.com"}\\n';
-  p += '   {"type": "browser_use_result", "id": "1", "output": "..."}\\n';
-  p += '   {"type": "bye", "reason": "..."}\\n';
-  p += '   {"type": "error", "message": "..."}\\n\\n';
-
-  p += '5. Session info:\\n';
-  p += '   GET ' + BASE + '/api/session/' + session.code + '\\n';
-  p += '   GET ' + BASE + '/api/session/' + session.code + '/features\\n\\n';
-
-  p += 'Capabilities:\\n\\n';
-
-  p += 'Shell:\\n';
-  p += '- Run shell commands persistently (cwd, env, background jobs survive)\\n';
-  p += '- Stream output in real-time via WebSocket\\n';
-  p += '- Use HTTP API for one-shot commands with JSON responses\\n\\n';
-
-  if (session.features.desktop) {
-    p += 'Desktop (macOS):\\n';
-    p += '- computer_use(action="capture", mode="som") \\u2014 screenshot with Set-of-Marks overlay\\n';
-    p += '- computer_use(action="capture", mode="raw") \\u2014 raw screenshot without overlay\\n';
-    p += '- computer_use(action="click", element=14) \\u2014 click element by index from SOM\\n';
-    p += '- computer_use(action="click", x=100, y=200) \\u2014 click at absolute coordinates\\n';
-    p += '- computer_use(action="type", text="hello world") \\u2014 type text at current focus\\n';
-    p += '- computer_use(action="key", keys="return") \\u2014 press key(s), comma-separated for chords\\n';
-    p += '- computer_use(action="scroll", direction="down") \\u2014 scroll up/down/left/right\\n';
-    p += '- computer_use(action="drag", x=100, y=200, endX=300, endY=400) \\u2014 drag from start to end\\n\\n';
-    p += 'API details: ' + CUA_DRIVER_DOCS + '\\n\\n';
+function updateExpiry(session) {
+  const seconds = Math.max(0, Math.ceil((expiresAt(session) - Date.now()) / 1000));
+  if (seconds <= 0) {
+    location.replace("/");
+    return;
   }
-
-  if (session.features.browser) {
-    p += 'Browser (agent-browser):\\n';
-    p += '- browser_use(cmd="open https://example.com") \\u2014 open URL in browser\\n';
-    p += '- browser_use(cmd="snapshot") \\u2014 get accessibility tree with @eN element refs\\n';
-    p += '- browser_use(cmd="click \\"Submit\\"") \\u2014 click element by text/aria-label\\n';
-    p += '- browser_use(cmd="click @e14") \\u2014 click element by ref from snapshot\\n';
-    p += '- browser_use(cmd="type \\"Email\\" \\"user@example.com\\"") \\u2014 type into labeled field\\n';
-    p += '- browser_use(cmd="screenshot") \\u2014 capture full-page screenshot\\n';
-    p += '- browser_use(cmd="back") / browser_use(cmd="forward") \\u2014 navigate history\\n';
-    p += '- browser_use(cmd="refresh") \\u2014 reload current page\\n\\n';
-    p += 'API details: ' + AGENT_BROWSER_DOCS + '\\n\\n';
-  }
-
-  p += 'Note:\\n';
-  p += '- The remote user sees everything you run\\n';
-  p += '- They can terminate the session at any time\\n';
-  p += '- Sessions expire after 2 hours of inactivity\\n';
-  return p;
+  const minutes = String(Math.floor(seconds / 60)).padStart(2, "0");
+  const remainder = String(seconds % 60).padStart(2, "0");
+  $("expiry").textContent = "Expires in " + minutes + ":" + remainder;
 }
 
 async function poll() {
-  try {
-    const r = await fetch(BASE + "/api/session/" + CODE);
-    if (!r.ok) { location.replace("/"); return; }
-    const s = await r.json();
-    if (s.status === "closed") { location.replace("/"); return; }
-    if (s.status === "waiting") {
-      $("waiting").hidden = false;
-      $("active").hidden = true;
-      const os = detectBrowserOS();
-      showCommand(s.code, os);
-    } else {
-      showActive(s);
-    }
-  } catch {
-    location.replace("/");
-  }
-}
-
-async function disconnect() {
-  try {
-    await fetch(BASE + "/api/session/" + CODE + "/disconnect", { method: "POST" });
-  } catch {}
-  location.replace("/");
+  const r = await fetch(BASE + "/api/session/" + CODE);
+  if (!r.ok) { location.replace("/"); return; }
+  const session = await r.json();
+  if (session.status === "closed") { location.replace("/"); return; }
+  if (session.status === "active") showActive(session);
+  else showWaiting(session);
 }
 
 async function main() {
   if (!CODE) {
-    try {
-      const r = await fetch(BASE + "/api/session", { method: "POST" });
-      const j = await r.json();
-      location.replace("/" + j.code);
-    } catch {
-      $("home").innerHTML = "<p>Error. Refresh to try again.</p>";
-    }
+    $("create-session").onclick = async function() {
+      const button = this;
+      button.textContent = "Creating...";
+      button.disabled = true;
+      try {
+        const r = await fetch(BASE + "/api/session");
+        const j = await r.json();
+        location.replace("/c/" + j.code);
+      } catch {
+        button.textContent = "Try Again";
+        button.disabled = false;
+      }
+    };
     return;
   }
 
   $("home").hidden = true;
   $("session").hidden = false;
-
+  $("copy-cmd").onclick = function() { copyText("cmd", this, "Copied"); };
+  $("copy-prompt").onclick = function() { copyText("short-prompt", this, "Copied"); };
+  $("disconnect").onclick = async function() {
+    await fetch(BASE + "/api/session/" + CODE + "/disconnect");
+    location.replace("/");
+  };
   await poll();
-  setInterval(poll, 2000);
-
-  $("disconnect").onclick = disconnect;
+  setInterval(poll, 1000);
 }
 
-main().catch(function() {
-  if (!CODE) $("home").innerHTML = "<p>Error. Refresh to try again.</p>";
-  else location.replace("/");
-});
+main().catch(function() { $("home").innerHTML = "<div>Connect Your Agent</div><div class='muted'>failed to create session. refresh to retry.</div>"; });
 </script>
-
 </body>
 </html>`;
 
 export function pagesHandler(req: Request, url: URL): Response | null {
   const path = url.pathname;
 
-  if (path === "/" || /^\/[0-9]{6}$/.test(path)) {
-    return new Response(HTML_TEMPLATE, { headers: { "Content-Type": "text/html" } });
+  if (path === "/") {
+    return html(HTML_TEMPLATE);
+  }
+
+  const connectMatch = path.match(/^\/c\/(\d{6})$/);
+  if (connectMatch) {
+    const acceptsHtml =
+      req.headers.get("accept")?.includes("text/html") ?? false;
+    if (acceptsHtml && url.searchParams.get("raw") !== "1")
+      return html(HTML_TEMPLATE);
+    return connectScript(connectMatch[1]!, url.origin);
+  }
+
+  const promptMatch = path.match(/^\/c\/(\d{6})\/prompt(?:\.md)?$/);
+  if (promptMatch) {
+    const session = getSession(promptMatch[1]!);
+    if (!session) return Response.json({ error: "Not found" }, { status: 404 });
+    return markdown(buildPrompt(toSessionResponse(session)));
   }
 
   if (path === "/tools") {
-    const schemas = [
-      {
-        name: "cya_shell",
-        description: "Execute a shell command on the connected remote machine",
-        parameters: {
-          type: "object",
-          properties: {
-            cmd: { type: "string", description: "Shell command to execute" },
+    return Response.json({
+      tools: [
+        {
+          name: "cya_shell",
+          description:
+            "Execute a shell command on the connected CYA remote machine. GET-compatible.",
+          endpoint: `${BASE_URL}/api/session/{code}/run?cmd={url_encoded_command}`,
+          method: "GET",
+          parameters: {
+            type: "object",
+            properties: { cmd: { type: "string" } },
+            required: ["cmd"],
           },
-          required: ["cmd"],
         },
-        endpoint: `${BASE_URL}/api/session/{code}/cmd`,
-        method: "POST",
-      },
-      {
-        name: "computer_use",
-        description: "Control the remote macOS desktop (screenshot, click, type, etc.)",
-        parameters: {
-          type: "object",
-          properties: {
-            action: { type: "string", enum: ["capture", "click", "type", "key", "scroll", "drag"], description: "Action to perform" },
-            mode: { type: "string", description: "Capture mode: som or raw" },
-            element: { type: "integer", description: "Element index to click" },
-            x: { type: "integer", description: "X coordinate" },
-            y: { type: "integer", description: "Y coordinate" },
-            text: { type: "string", description: "Text to type" },
-            keys: { type: "string", description: "Keys to press" },
-            direction: { type: "string", description: "Scroll direction" },
-            endX: { type: "integer", description: "End X coordinate for drag" },
-            endY: { type: "integer", description: "End Y coordinate for drag" },
-          },
-          required: ["action"],
-        },
-      },
-      {
-        name: "browser_use",
-        description: "Control the remote browser via agent-browser",
-        parameters: {
-          type: "object",
-          properties: {
-            cmd: { type: "string", description: "agent-browser command (e.g. \"open https://example.com\", \"snapshot\", \"screenshot\", \"click Submit\", \"click @e14\")" },
-          },
-          required: ["cmd"],
-        },
-      },
-    ];
-    return new Response(JSON.stringify({ tools: schemas }, null, 2), {
-      headers: { "Content-Type": "application/json" },
+      ],
     });
   }
 
   return null;
+}
+
+export function connectScript(
+  code: string,
+  requestOrigin = BASE_URL,
+): Response {
+  const wsUrl = `${requestOrigin.replace(/^http:/, "ws:").replace(/^https:/, "wss:")}/ws`;
+  const script = `#!/bin/bash
+set -euo pipefail
+BASE_URL="${requestOrigin}"
+CODE="${code}"
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+if [ "$ARCH" = "x86_64" ]; then ARCH="x64"; fi
+if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then ARCH="arm64"; fi
+BIN_NAME="cya-bridge-\${OS}-\${ARCH}"
+if [ "$OS" != "linux" ] && [ "$OS" != "darwin" ]; then
+  echo "[CYA] Unsupported OS: \${OS}. Use Linux or macOS for curl-based connect."
+  exit 1
+fi
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+echo "[CYA] Downloading agent for \${OS}-\${ARCH}..."
+curl -fsSL "\${BASE_URL}/bin/\${BIN_NAME}" -o "\${TMPDIR}/\${BIN_NAME}"
+chmod +x "\${TMPDIR}/\${BIN_NAME}"
+echo "[CYA] Starting transparent Connect Your Agent session \${CODE}. Press Ctrl+C to stop."
+BRIDGE_WS_URL="${wsUrl}" "\${TMPDIR}/\${BIN_NAME}" "\${CODE}"
+`;
+  return new Response(script, {
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
+function html(body: string): Response {
+  return new Response(body, {
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
+}
+
+function markdown(body: string): Response {
+  return new Response(body, {
+    headers: { "Content-Type": "text/markdown; charset=utf-8" },
+  });
 }

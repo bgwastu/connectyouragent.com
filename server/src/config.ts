@@ -12,5 +12,5 @@ export const HOST = env("HOST", "0.0.0.0");
 export const WS_URL = env("WS_URL", "wss://cya.wastu.net/ws");
 export const BASE_URL = env("BASE_URL", "https://cya.wastu.net");
 export const SESSION_MAX_AGE = parseInt(env("SESSION_MAX_AGE", "7200"), 10); // seconds
-export const SESSION_IDLE_TIMEOUT = parseInt(env("SESSION_IDLE_TIMEOUT", "600"), 10); // seconds
+export const SESSION_IDLE_TIMEOUT = parseInt(env("SESSION_IDLE_TIMEOUT", "300"), 10); // seconds
 export const CLEANUP_INTERVAL = parseInt(env("CLEANUP_INTERVAL", "60"), 10); // seconds

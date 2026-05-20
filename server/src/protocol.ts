@@ -4,6 +4,17 @@ export interface MsgJoin {
   type: "join";
   session: string;
   role: Role;
+  meta?: AgentMeta;
+}
+
+export interface AgentMeta {
+  os: string;
+  arch: string;
+  host: string;
+  user: string;
+  cwd?: string;
+  shell?: string;
+  elevated?: boolean;
 }
 
 export interface MsgCommand {
@@ -18,6 +29,13 @@ export interface MsgOutput {
   id?: string;
 }
 
+export interface MsgCommandResult {
+  type: "command_result";
+  id: string;
+  output: string;
+  exit_code: number;
+}
+
 export interface MsgError {
   type: "error";
   message: string;
@@ -28,7 +46,7 @@ export interface MsgBye {
   reason?: string;
 }
 
-export type ProtocolMsg = MsgJoin | MsgCommand | MsgOutput | MsgError | MsgBye;
+export type ProtocolMsg = MsgJoin | MsgCommand | MsgOutput | MsgCommandResult | MsgError | MsgBye;
 
 export interface SessionInfo {
   code: string;
@@ -36,6 +54,9 @@ export interface SessionInfo {
   agent_os?: string;
   agent_arch?: string;
   agent_host?: string;
+  agent_user?: string;
+  agent_cwd?: string;
+  agent_shell?: string;
   created_at: string;
 }
 
