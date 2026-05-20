@@ -183,7 +183,8 @@ export function pagesHandler(req: Request, url: URL): Response | null {
   if (promptMatch) {
     const session = getSession(promptMatch[1]!);
     if (!session) return Response.json({ error: "Not found" }, { status: 404 });
-    return markdown(buildPrompt(toSessionResponse(session)));
+    const origin = effectiveOrigin(req);
+    return markdown(buildPrompt(toSessionResponse(session, origin), origin));
   }
 
   if (path === "/tools") {
@@ -265,7 +266,6 @@ trap 'rm -rf "$TMPDIR"' EXIT
 echo "[CYA] Downloading agent for \${OS}-\${ARCH}..."
 curl -fsSL "\${BASE_URL}/bin/\${BIN_NAME}" -o "\${TMPDIR}/\${BIN_NAME}"
 chmod +x "\${TMPDIR}/\${BIN_NAME}"
-echo "[CYA] Starting transparent Connect Your Agent session \${CODE}. Press Ctrl+C to stop."
 BRIDGE_WS_URL="\${BASE_URL/http/ws}/ws" "\${TMPDIR}/\${BIN_NAME}" "\${CODE}"
 `;
   return new Response(script, {

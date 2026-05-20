@@ -4,6 +4,13 @@ import { executeHttpCommand, getOrCreateSlot, isSessionCode, removeSlot } from "
 type SessionResponse = ReturnType<typeof toSessionResponse>;
 const promptTemplate = await Bun.file("./server/templates/prompt.md").text();
 
+/** Detect the effective origin (protocol + host) behind TLS-terminating proxies. */
+function effectiveOrigin(req: Request): string {
+  const proto = req.headers.get("X-Forwarded-Proto") === "https" ? "https" : "http";
+  const host = req.headers.get("Host") || "localhost";
+  return `${proto}://${host}`;
+}
+
 export function generateCode(): string {
   const adjectives = ["sage", "quiet", "brisk", "bright", "calm", "clever", "gentle", "honest", "lucky", "solar"];
   const nouns = ["daffodil", "henna", "cedar", "ember", "fig", "harbor", "ivy", "jasmine", "meadow", "willow"];
@@ -16,13 +23,18 @@ export function generateCode(): string {
 export function apiHandler(req: Request, url: URL): Response | Promise<Response> | null {
   const path = url.pathname;
   const method = req.method;
+  const origin = effectiveOrigin(req);
 
   if (path === "/api/session" && (method === "GET" || method === "POST")) {
     const code = createUniqueSessionCode();
     createSession(code);
     getOrCreateSlot(code);
     audit(code, "system", "session_created");
-    return json({ code, status: "waiting", connect_url: `/c/${code}` });
+    return json({
+      code,
+      status: "waiting",
+      connect_url: origin ? `${origin}/c/${code}` : `/c/${code}`,
+    });
   }
 
   if (path === "/api/sessions" && method === "GET") {
@@ -38,7 +50,7 @@ export function apiHandler(req: Request, url: URL): Response | Promise<Response>
   if (!session) return notFound();
 
   if (action === "info" && method === "GET") {
-    return json(toSessionResponse(session));
+    return json(toSessionResponse(session, origin));
   }
 
   if (action === "disconnect" && (method === "GET" || method === "POST")) {
@@ -47,17 +59,17 @@ export function apiHandler(req: Request, url: URL): Response | Promise<Response>
   }
 
   if ((action === "prompt" || action === "prompt.md") && method === "GET") {
-    return markdown(buildPrompt(toSessionResponse(session)));
+    return markdown(buildPrompt(toSessionResponse(session, origin), origin));
   }
 
   if ((action === "run" || action === "cmd") && (method === "GET" || method === "POST")) {
-    return handleCommand(req, url, code, session.status);
+    return handleCommand(req, url, code, session.status, origin);
   }
 
   return null;
 }
 
-async function handleCommand(req: Request, url: URL, code: string, status: string): Promise<Response> {
+async function handleCommand(req: Request, url: URL, code: string, status: string, baseUrl?: string): Promise<Response> {
   if (!isSessionCode(code)) return json({ error: "Invalid session code" }, 400);
   if (status !== "active") return json({ error: "Agent not connected" }, 409);
 
@@ -67,7 +79,11 @@ async function handleCommand(req: Request, url: URL, code: string, status: strin
   audit(code, "http", "command", cmd);
   try {
     const result = await executeHttpCommand(code, cmd);
-    return json(result);
+    return json({
+      ...result,
+      session: code,
+      run_url: baseUrl ? `${baseUrl}/api/session/${code}/run?cmd=` : `/api/session/${code}/run?cmd=`,
+    });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Command failed" }, 500);
   }
@@ -95,7 +111,7 @@ function createUniqueSessionCode(): string {
   throw new Error("Unable to allocate session code");
 }
 
-export function toSessionResponse(session: NonNullable<ReturnType<typeof getSession>>) {
+export function toSessionResponse(session: NonNullable<ReturnType<typeof getSession>>, baseUrl?: string) {
   return {
     code: session.code,
     status: session.status,
@@ -109,15 +125,18 @@ export function toSessionResponse(session: NonNullable<ReturnType<typeof getSess
     created_at: session.created_at,
     updated_at: session.updated_at,
     closed_at: session.closed_at,
-    connect_url: `/c/${session.code}`,
-    prompt_url: `/c/${session.code}/prompt.md`,
+    connect_url: baseUrl ? `${baseUrl}/c/${session.code}` : `/c/${session.code}`,
+    prompt_url: baseUrl ? `${baseUrl}/c/${session.code}/prompt.md` : `/c/${session.code}/prompt.md`,
+    run_url: baseUrl ? `${baseUrl}/api/session/${session.code}/run?cmd=` : `/api/session/${session.code}/run?cmd=`,
     capabilities: ["shell"],
   };
 }
 
-export function buildPrompt(session: SessionResponse): string {
+export function buildPrompt(session: SessionResponse, baseUrl?: string): string {
   const hasStatus = session.status === "active";
-  const runUrl = `/api/session/${session.code}/run?cmd=`;
+  const runUrl = baseUrl
+    ? `${baseUrl}/api/session/${session.code}/run?cmd=`
+    : `/api/session/${session.code}/run?cmd=`;
   return renderTemplate(promptTemplate, {
     code: session.code,
     status: session.status,
@@ -140,7 +159,10 @@ function renderTemplate(template: string, values: Record<string, string>) {
 }
 
 function json(data: unknown, status = 200): Response {
-  return Response.json(data, { status });
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+  });
 }
 
 function markdown(data: string): Response {
