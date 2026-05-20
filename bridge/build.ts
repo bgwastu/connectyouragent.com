@@ -19,7 +19,7 @@ for (const target of targets) {
     : `cya-bridge-${target.replace("bun-", "")}`;
 
   console.log(`Building ${target} -> ${outName}`);
-  await $`bun build --compile --target=${target} --outfile=${outDir}/${outName} ./agent/agent.ts`;
+  await $`bun build --compile --target=${target} --outfile=${outDir}/${outName} ./bridge/agent.ts`;
 }
 
 console.log("Done. Binaries in", outDir);

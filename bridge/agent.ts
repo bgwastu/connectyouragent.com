@@ -239,9 +239,23 @@ function safeUser(): string {
 }
 
 function isElevated(): boolean {
-  if (typeof process.getuid === "function") return process.getuid() === 0;
-  if (process.platform !== "win32") return false;
-  return process.env.USERNAME?.toLowerCase() === "administrator" || process.env.CYA_ELEVATED === "1";
+  // userInfo() from node:os works in both Bun dev and compiled mode
+  try {
+    return userInfo().uid === 0;
+  } catch {}
+
+  // Fallback for Bun dev mode
+  if (typeof process.getuid === "function") {
+    try {
+      return process.getuid() === 0;
+    } catch {}
+  }
+
+  if (process.platform === "win32") {
+    return process.env.USERNAME?.toLowerCase() === "administrator" || process.env.CYA_ELEVATED === "1";
+  }
+
+  return false;
 }
 
 function clamp(value: number, min: number, max: number) {

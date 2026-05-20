@@ -1,11 +1,11 @@
-# Build stage: compile agent binaries
+# Build stage: compile bridge binaries
 FROM oven/bun:1 as builder
 WORKDIR /app
 COPY package.json tsconfig.json ./
 COPY migrations ./migrations
 COPY server ./server
-COPY agent ./agent
-RUN bun run build:agents
+COPY bridge ./bridge
+RUN bun run build:bridge
 
 # Runtime stage
 FROM oven/bun:1-slim
