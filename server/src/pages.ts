@@ -1,5 +1,5 @@
 import { buildPrompt, toSessionResponse } from "./api.ts";
-import { BASE_URL } from "./config.ts";
+import { BASE_URL, WS_URL } from "./config.ts";
 import { getSession } from "./db.ts";
 
 const HTML_TEMPLATE = `<!doctype html>
@@ -202,7 +202,6 @@ export function connectScript(
   code: string,
   requestOrigin = BASE_URL,
 ): Response {
-  const wsUrl = `${requestOrigin.replace(/^http:/, "ws:").replace(/^https:/, "wss:")}/ws`;
   const script = `#!/bin/bash
 set -euo pipefail
 BASE_URL="${requestOrigin}"
@@ -216,13 +215,48 @@ if [ "$OS" != "linux" ] && [ "$OS" != "darwin" ]; then
   echo "[CYA] Unsupported OS: \${OS}. Use Linux or macOS for curl-based connect."
   exit 1
 fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[CYA] python3 is required for PTY mode. Attempting install..."
+  if [ "$OS" = "darwin" ]; then
+    if command -v brew >/dev/null 2>&1; then
+      brew install python
+    elif command -v xcode-select >/dev/null 2>&1; then
+      echo "[CYA] Homebrew not found. Installing Xcode command line tools prompt may appear."
+      xcode-select --install || true
+    else
+      echo "[CYA] Please install Python 3, then rerun this command."
+      exit 1
+    fi
+  elif [ "$OS" = "linux" ]; then
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get update && sudo apt-get install -y python3
+    elif command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y python3
+    elif command -v yum >/dev/null 2>&1; then
+      sudo yum install -y python3
+    elif command -v apk >/dev/null 2>&1; then
+      sudo apk add --no-cache python3
+    elif command -v pacman >/dev/null 2>&1; then
+      sudo pacman -Sy --noconfirm python
+    elif command -v zypper >/dev/null 2>&1; then
+      sudo zypper install -y python3
+    else
+      echo "[CYA] No supported package manager found. Please install Python 3, then rerun this command."
+      exit 1
+    fi
+  fi
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[CYA] python3 is still unavailable. Please install Python 3, then rerun this command."
+  exit 1
+fi
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 echo "[CYA] Downloading agent for \${OS}-\${ARCH}..."
 curl -fsSL "\${BASE_URL}/bin/\${BIN_NAME}" -o "\${TMPDIR}/\${BIN_NAME}"
 chmod +x "\${TMPDIR}/\${BIN_NAME}"
 echo "[CYA] Starting transparent Connect Your Agent session \${CODE}. Press Ctrl+C to stop."
-BRIDGE_WS_URL="${wsUrl}" "\${TMPDIR}/\${BIN_NAME}" "\${CODE}"
+BRIDGE_WS_URL="${WS_URL}" "\${TMPDIR}/\${BIN_NAME}" "\${CODE}"
 `;
   return new Response(script, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },

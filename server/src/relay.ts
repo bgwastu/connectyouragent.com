@@ -80,6 +80,7 @@ export function handleJoin(ws: ServerWebSocket<unknown>, msg: Extract<ProtocolMs
   if (msg.role === "agent") {
     if (slot.agent) {
       rejectJoin(ws, "Agent already connected");
+      audit(msg.session, "agent", "rejected_duplicate");
       return;
     }
     slot.agent = ws;
