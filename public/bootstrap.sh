@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-BASE_URL="${BRIDGE_URL:-https://cya.wastu.net}"
+BASE_URL="${BRIDGE_URL:?BRIDGE_URL is required}"
 CODE="${1:-}"
 
 if [ -z "$CODE" ]; then

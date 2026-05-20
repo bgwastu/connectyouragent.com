@@ -2,7 +2,7 @@ import { audit, createSession, getSession, listActiveSessions } from "./db.ts";
 import { executeHttpCommand, getOrCreateSlot, isSessionCode, removeSlot } from "./relay.ts";
 
 type SessionResponse = ReturnType<typeof toSessionResponse>;
-const promptTemplate = await Bun.file("./server/templates/raw.md").text();
+const promptTemplate = await Bun.file("./server/templates/prompt.md").text();
 
 export function generateCode(): string {
   const adjectives = ["sage", "quiet", "brisk", "bright", "calm", "clever", "gentle", "honest", "lucky", "solar"];

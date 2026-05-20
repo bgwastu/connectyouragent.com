@@ -1,5 +1,5 @@
 import { buildPrompt, toSessionResponse } from "./api.ts";
-import { BASE_URL, WS_URL } from "./config.ts";
+import { BASE_URL } from "./config.ts";
 import { getSession } from "./db.ts";
 
 const HTML_TEMPLATE = `<!doctype html>
@@ -183,7 +183,7 @@ export function pagesHandler(req: Request, url: URL): Response | null {
           name: "cya_shell",
           description:
             "Execute a shell command on the connected CYA remote machine. GET-compatible.",
-          endpoint: `${BASE_URL}/api/session/{code}/run?cmd={url_encoded_command}`,
+          endpoint: `${url.origin}/api/session/{code}/run?cmd={url_encoded_command}`,
           method: "GET",
           parameters: {
             type: "object",
@@ -256,7 +256,7 @@ echo "[CYA] Downloading agent for \${OS}-\${ARCH}..."
 curl -fsSL "\${BASE_URL}/bin/\${BIN_NAME}" -o "\${TMPDIR}/\${BIN_NAME}"
 chmod +x "\${TMPDIR}/\${BIN_NAME}"
 echo "[CYA] Starting transparent Connect Your Agent session \${CODE}. Press Ctrl+C to stop."
-BRIDGE_WS_URL="${WS_URL}" "\${TMPDIR}/\${BIN_NAME}" "\${CODE}"
+BRIDGE_WS_URL="\${BASE_URL/https:/wss:}/ws" "\${TMPDIR}/\${BIN_NAME}" "\${CODE}"
 `;
   return new Response(script, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },

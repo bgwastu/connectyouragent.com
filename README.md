@@ -2,8 +2,6 @@
 
 Temporary shell access for any AI agent.
 
-`BASE_URL` and `WS_URL` are required.
-
 Run with Docker:
 
 ```sh
