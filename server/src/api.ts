@@ -2,8 +2,11 @@ import { executeHttpCommand, isSessionCode } from "./relay.ts";
 import * as store from "./store.ts";
 import { effectiveOrigin, json, markdown, notFound } from "./http.ts";
 
+const promptTemplate = await Bun.file(
+  new URL("../templates/prompt.md", import.meta.url),
+).text();
+
 type SessionResponse = ReturnType<typeof toSessionResponse>;
-const promptTemplate = await Bun.file("./server/templates/prompt.md").text();
 
 export function generateCode(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 12);

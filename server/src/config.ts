@@ -11,4 +11,3 @@ export const PORT = parseInt(env("PORT", "8765"), 10);
 export const HOST = env("HOST", "0.0.0.0");
 export const BASE_URL = env("BASE_URL", "http://localhost:8765");
 export const SESSION_IDLE_TIMEOUT = parseInt(env("SESSION_IDLE_TIMEOUT", "300"), 10); // seconds
-export const CLEANUP_INTERVAL = parseInt(env("CLEANUP_INTERVAL", "60"), 10); // seconds

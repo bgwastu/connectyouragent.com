@@ -16,5 +16,3 @@ Open http://localhost:8765 and create a session.
 bun install
 bun dev
 ```
-
-`bun dev` runs the server with `bun --hot`: edits to `.ts`, `.html`, and `.md` under `server/` trigger a reload (refresh the browser to see HTML changes).

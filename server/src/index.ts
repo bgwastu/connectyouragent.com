@@ -2,10 +2,7 @@ import type { ServerWebSocket } from "bun";
 import {
   PORT,
   HOST,
-  CLEANUP_INTERVAL,
-  SESSION_IDLE_TIMEOUT,
 } from "./config.ts";
-import * as store from "./store.ts";
 import { handleJoin, handleMessage, handleDisconnect } from "./relay.ts";
 import { apiHandler } from "./api.ts";
 import { pagesHandler } from "./pages.ts";
@@ -74,11 +71,3 @@ const server = Bun.serve({
 });
 
 console.log(`listening on ${HOST}:${PORT}`);
-
-setInterval(() => {
-  const closed = store.cleanup(SESSION_IDLE_TIMEOUT);
-  if (closed.length > 0)
-    console.log(
-      `Cleaned up ${closed.length} stale sessions: ${closed.join(", ")}`,
-    );
-}, CLEANUP_INTERVAL * 1000);

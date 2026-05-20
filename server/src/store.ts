@@ -1,5 +1,6 @@
 import type { ServerWebSocket } from "bun";
 import type { AgentMeta, CommandResult } from "./protocol.ts";
+import { SESSION_IDLE_TIMEOUT } from "./config.ts";
 
 export type SessionStatus = "waiting" | "active" | "closed";
 
@@ -38,6 +39,7 @@ export function isSessionCode(value: string): boolean {
 const emptyMeta: Meta = { host: "", os: "", arch: "", user: "", cwd: "", shell: "", elevated: false };
 
 export function create(code: string): Session {
+  idleSweepIfDue();
   const now = Date.now();
   const session: Session = {
     code,
@@ -53,6 +55,7 @@ export function create(code: string): Session {
 }
 
 export function get(code: string): Session | undefined {
+  idleSweepIfDue();
   return sessions.get(code);
 }
 
@@ -61,6 +64,7 @@ export function all(): ReadonlyMap<string, Session> {
 }
 
 export function list(): { code: string; status: SessionStatus; host: string; created_at: string }[] {
+  idleSweepIfDue();
   const results: { code: string; status: SessionStatus; host: string; created_at: string }[] = [];
   for (const [, s] of sessions) {
     if (s.status === "closed") continue;
@@ -130,4 +134,14 @@ export function cleanup(idleSeconds: number): string[] {
     }
   }
   return closed;
+}
+
+/** Evict orphaned waiting sessions idle past SESSION_IDLE_TIMEOUT (piggybacks on traffic). */
+function idleSweepIfDue(): void {
+  const closed = cleanup(SESSION_IDLE_TIMEOUT);
+  if (closed.length > 0) {
+    console.log(
+      `Cleaned up ${closed.length} stale sessions: ${closed.join(", ")}`,
+    );
+  }
 }

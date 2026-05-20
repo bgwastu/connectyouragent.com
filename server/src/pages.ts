@@ -2,7 +2,9 @@ import { buildPrompt, toSessionResponse } from "./api.ts";
 import * as store from "./store.ts";
 import { effectiveOrigin, html } from "./http.ts";
 
-const indexHtml = await Bun.file("./server/templates/index.html").text();
+const indexHtml = await Bun.file(
+  new URL("../templates/index.html", import.meta.url),
+).text();
 
 export function pagesHandler(req: Request, url: URL): Response | null {
   const path = url.pathname;
