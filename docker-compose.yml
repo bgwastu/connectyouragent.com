@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  bridge:
+    build: .
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=8765
+      - HOST=0.0.0.0
+      - WS_URL=wss://cya.wastu.net/ws
+      - BASE_URL=https://cya.wastu.net
+      - DB_PATH=/app/data/bridge.db
+      - SESSION_MAX_AGE=7200
+      - SESSION_IDLE_TIMEOUT=600
+      - CLEANUP_INTERVAL=60
+    restart: unless-stopped
