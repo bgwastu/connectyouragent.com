@@ -163,6 +163,7 @@ async function main() {
 
     if (msg.type === "command" && msg.id) {
       log(`cmd http: ${msg.cmd}`);
+      process.stdout.write(`[CYA] # ${msg.cmd}\n`);
       sendOutput(ws, `[CYA] # ${msg.cmd}\n`);
       const result = await runOneShot(msg.cmd);
       log(`cmd_result id=${msg.id} exit=${result.exit_code} out=${result.output.slice(0, 200)}`);
@@ -172,7 +173,6 @@ async function main() {
 
     if (msg.type === "command") {
       log(`cmd tty: ${msg.cmd}`);
-      sendOutput(ws, `[CYA] # ${msg.cmd}\n`);
       term.stdin.write(`${msg.cmd}\r`);
       return;
     }
