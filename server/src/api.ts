@@ -58,13 +58,13 @@ export function apiHandler(req: Request, url: URL): Response | Promise<Response>
   }
 
   if ((action === "run" || action === "cmd") && (method === "GET" || method === "POST")) {
-    return handleCommand(req, url, code, session.status, origin);
+    return handleCommand(req, url, code, session.status);
   }
 
   return null;
 }
 
-async function handleCommand(req: Request, url: URL, code: string, status: string, baseUrl?: string): Promise<Response> {
+async function handleCommand(req: Request, url: URL, code: string, status: string): Promise<Response> {
   if (!isSessionCode(code)) return json({ error: "Invalid session code" }, 400);
   if (status !== "active") return json({ error: "Agent not connected" }, 409);
 
@@ -74,11 +74,7 @@ async function handleCommand(req: Request, url: URL, code: string, status: strin
   audit(code, "http", "command", cmd);
   try {
     const result = await executeHttpCommand(code, cmd);
-    return json({
-      ...result,
-      session: code,
-      run_url: baseUrl ? `${baseUrl}/api/session/${code}/run?cmd=` : `/api/session/${code}/run?cmd=`,
-    });
+    return json(result);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Command failed" }, 500);
   }
