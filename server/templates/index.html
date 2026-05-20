@@ -174,14 +174,11 @@
       }
 
       function updateExpiry(session) {
-        var seconds = Math.max(
-          0,
-          Math.ceil((expiresAt(session) - Date.now()) / 1000),
-        );
-        if (seconds <= 0) {
-          location.replace("/");
-          return;
-        }
+        var seconds = Math.max(0, Math.ceil((expiresAt(session) - Date.now()) / 1000));
+        var minutes = String(Math.floor(seconds / 60)).padStart(2, "0");
+        var remainder = String(seconds % 60).padStart(2, "0");
+        $("expiry").textContent = seconds > 0 ? "Expires in " + minutes + ":" + remainder : "Expired";
+      }
         var minutes = String(Math.floor(seconds / 60)).padStart(2, "0");
         var remainder = String(seconds % 60).padStart(2, "0");
         $("expiry").textContent = "Expires in " + minutes + ":" + remainder;
@@ -189,10 +186,7 @@
 
       async function poll() {
         var r = await fetch(BASE + "/api/session/" + CODE);
-        if (!r.ok) {
-          location.replace("/");
-          return;
-        }
+        if (!r.ok) return; // network hiccup, retry next poll
         var session = await r.json();
         if (session.status === "closed") {
           location.replace("/");
