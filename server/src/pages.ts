@@ -13,8 +13,10 @@ export function pagesHandler(req: Request, url: URL): Response | null {
 
   const connectMatch = path.match(/^\/c\/([0-9a-f]{12})$/);
   if (connectMatch) {
-    const acceptsHtml = req.headers.get("accept")?.includes("text/html") ?? false;
-    if (acceptsHtml && url.searchParams.get("raw") !== "1") return html(indexHtml);
+    const acceptsHtml =
+      req.headers.get("accept")?.includes("text/html") ?? false;
+    if (acceptsHtml && url.searchParams.get("raw") !== "1")
+      return html(indexHtml);
     return connectScript(connectMatch[1]!, effectiveOrigin(req));
   }
 
@@ -23,9 +25,12 @@ export function pagesHandler(req: Request, url: URL): Response | null {
     const session = store.get(promptMatch[1]!);
     if (!session) return Response.json({ error: "Not found" }, { status: 404 });
     const origin = effectiveOrigin(req);
-    return new Response(buildPrompt(toSessionResponse(session, origin), origin), {
-      headers: { "Content-Type": "text/markdown; charset=utf-8" },
-    });
+    return new Response(
+      buildPrompt(toSessionResponse(session, origin), origin),
+      {
+        headers: { "Content-Type": "text/markdown; charset=utf-8" },
+      },
+    );
   }
 
   if (path === "/tools") {
@@ -33,15 +38,23 @@ export function pagesHandler(req: Request, url: URL): Response | null {
       tools: [
         {
           name: "cya_shell",
-          description: "Execute a shell command on the connected CYA remote machine. Supports GET and POST.",
+          description:
+            "Execute a shell command on the connected CYA remote machine. Supports GET and POST.",
           endpoint: `${url.origin}/api/session/{code}/run`,
           method: "POST",
           parameters: {
             type: "object",
             properties: {
               cmd: { type: "string", description: "Shell command to execute" },
-              cmd_b64: { type: "string", description: "Base64-encoded shell command (safer for special chars)" },
-              timeout: { type: "number", description: "Timeout in seconds (1-300, default 30)" },
+              cmd_b64: {
+                type: "string",
+                description:
+                  "Base64-encoded shell command (safer for special chars)",
+              },
+              timeout: {
+                type: "number",
+                description: "Timeout in seconds (1-300, default 30)",
+              },
             },
             required: [],
           },
@@ -64,18 +77,18 @@ if [ "$ARCH" = "x86_64" ]; then ARCH="x64"; fi
 if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then ARCH="arm64"; fi
 BIN_NAME="cya-bridge-\${OS}-\${ARCH}"
 if [ "$OS" != "linux" ] && [ "$OS" != "darwin" ]; then
-  echo "[CYA] Unsupported OS: \${OS}. Use Linux or macOS."
+  echo "Unsupported OS: \${OS}. Use Linux or macOS."
   exit 1
 fi
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "[CYA] python3 is required for PTY mode. Attempting install..."
+  echo "python3 is required for PTY mode. Attempting install..."
   if [ "$OS" = "darwin" ]; then
     if command -v brew >/dev/null 2>&1; then
       brew install python
     elif command -v xcode-select >/dev/null 2>&1; then
       xcode-select --install || true
     else
-      echo "[CYA] Please install Python 3, then rerun this command."
+      echo "Please install Python 3, then rerun this command."
       exit 1
     fi
   elif [ "$OS" = "linux" ]; then
@@ -92,18 +105,18 @@ if ! command -v python3 >/dev/null 2>&1; then
     elif command -v zypper >/dev/null 2>&1; then
       sudo zypper install -y python3
     else
-      echo "[CYA] No supported package manager found. Please install Python 3."
+      echo "No supported package manager found. Please install Python 3."
       exit 1
     fi
   fi
 fi
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "[CYA] python3 is still unavailable. Please install Python 3."
+  echo "python3 is still unavailable. Please install Python 3."
   exit 1
 fi
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
-echo "[CYA] Downloading agent for \${OS}-\${ARCH}..."
+echo "Downloading agent for \${OS}-\${ARCH}..."
 curl -fsSL "\${BASE_URL}/bin/\${BIN_NAME}" -o "\${TMPDIR}/\${BIN_NAME}"
 chmod +x "\${TMPDIR}/\${BIN_NAME}"
 BRIDGE_WS_URL="\${BASE_URL/http/ws}/ws" "\${TMPDIR}/\${BIN_NAME}" "\${CODE}"

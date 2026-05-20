@@ -54,19 +54,19 @@ export function handleDisconnect(ws: ServerWebSocket<unknown>) {
   }
 }
 
-export function executeHttpCommand(code: string, cmd: string, timeoutMs?: number): Promise<CommandResult> {
+export function executeHttpCommand(code: string, cmd: string, timeoutSec?: number): Promise<CommandResult> {
   const session = store.get(code);
   if (!session) return Promise.reject(new Error("Session not found"));
   if (!session.agent) return Promise.reject(new Error("Agent not connected"));
 
   const id = crypto.randomUUID();
-  const timeout = Math.max(1000, Math.min(timeoutMs ?? 30_000, 300_000));
+  const timeoutMs = Math.max(1000, Math.min((timeoutSec ?? 30) * 1000, 300_000));
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       session.pendingHttp.delete(id);
-      reject(new Error(`Command timed out after ${Math.round(timeout / 1000)}s`));
-    }, timeout);
+      reject(new Error(`Command timed out after ${Math.round(timeoutMs / 1000)}s`));
+    }, timeoutMs);
 
     session.pendingHttp.set(id, { resolve, reject, timer });
     session.agent!.send(JSON.stringify({ type: "command", cmd, id }));
