@@ -34,81 +34,70 @@ command -v bun node npm pnpm yarn python3 python pip3 pip git gh docker curl jq 
 
 Use those results to decide whether Bun, Node, Python, Git, Docker, or other tools are available. Do not assume a tool exists until you check it or the user tells you.
 
-## API
+## How to run commands
 
-GET-compatible command endpoint:
+Commands run over HTTP. **Prefer curl** if your harness supports it — `curl -s` gives you clean raw output and works reliably.
 
-```
-GET {{run_url}}<url-encoded-command>
-```
+### curl (preferred)
 
-Examples:
+Short commands (fits in a URL):
 
 ```
-GET {{run_url}}pwd
-GET {{run_url}}ls%20-la
-GET {{run_url}}git%20status%20--short
-GET {{run_url}}bun%20test
+curl -s "{{run_url}}pwd"
+curl -s "{{run_url}}ls%20-la"
 ```
 
-POST JSON also works:
+Long commands or anything near URL length limits — use POST with JSON:
 
 ```
-POST /api/session/{{code}}/run
-Content-Type: application/json
-
-{"cmd":"pwd"}
+curl -s "{{run_url}}" -d '{"cmd":"find . -name \"*.ts\" -not -path \"./node_modules/*\" | xargs wc -l"}'
 ```
 
-Session info:
+### web_fetch (fallback)
+
+If your harness only supports `web_fetch`, try GET:
 
 ```
-GET /api/session/{{code}}
+{{run_url}}pwd
+{{run_url}}ls%20-la
 ```
 
-Disconnect:
+If web_fetch returns cached/stale responses, errors, or truncates output — web_fetch is not supported in your harness. Fall back to curl or tell the user web_fetch isn't working.
+
+### Session info
 
 ```
-GET /api/session/{{code}}/disconnect
+curl -s "{{base_url}}/api/session/{{code}}"
 ```
 
-## WebSocket interactive CLI
+### WebSocket interactive CLI
 
 For streaming/interactive shell use, connect to `/ws` and join as a client:
 
-```
+```json
 {"type":"join","session":"{{code}}","role":"client"}
 ```
 
-Then send commands:
+Then send commands over the WebSocket:
 
-```
+```json
 {"type":"command","cmd":"pwd"}
 ```
 
-For terminal-like input, send raw input as base64:
+For terminal-like raw input (base64-encoded):
 
-```
+```json
 {"type":"input","data":"cHdkXHI=","encoding":"base64"}
 ```
 
-Resize the PTY:
+Resize the PTY or send signals:
 
-```
+```json
 {"type":"resize","cols":120,"rows":40}
-```
-
-Send Ctrl+C:
-
-```
 {"type":"signal","name":"SIGINT"}
 ```
 
-Output streams back as:
-
-```
-{"type":"output","data":"...","encoding":"base64"}
-```
+Output streams back as base64-encoded output messages.
 
 ## Safety policy
 

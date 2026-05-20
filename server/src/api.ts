@@ -146,6 +146,7 @@ export function buildPrompt(session: SessionResponse, baseUrl?: string): string 
       ? "The agent is connected and ready."
       : "The agent is not active yet. Wait until the user connects the machine before running commands.",
     run_url: runUrl,
+    base_url: baseUrl || "",
   });
 }
 
