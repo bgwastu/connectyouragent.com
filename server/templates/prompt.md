@@ -1,4 +1,4 @@
-You have non-interactive shell command access to a user-approved machine via Create Your Agent (CYA).
+You have non-interactive shell command access to a user-approved machine via Connect Your Agent (CYA).
 
 **Machine:** {{remote}}
 **OS/arch:** {{os_arch}}
