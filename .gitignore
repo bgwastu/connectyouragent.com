@@ -5,3 +5,4 @@ public/bin/
 .env
 *.log
 .DS_Store
+*.bun-build

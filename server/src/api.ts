@@ -138,7 +138,6 @@ export function buildPrompt(session: SessionResponse, baseUrl?: string): string 
     cwd: meta.cwd || "unknown",
     shell: meta.shell || "unknown",
     elevated: meta.elevated ? "yes" : "no",
-    created_at: session.created_at,
     connection_status: session.status === "active"
       ? "The agent is connected and ready."
       : "The agent is not active yet. Wait until the user connects before running commands.",

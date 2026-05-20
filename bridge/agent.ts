@@ -6,7 +6,7 @@ const WS_URL = requiredEnv("BRIDGE_WS_URL");
 const MAX_BUFFERED_AMOUNT = 1024 * 1024;
 
 // ANSI
-const C = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m", green: "\x1b[32m", red: "\x1b[31m" } as const;
+const C = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m", red: "\x1b[31m" } as const;
 const DOT = `${C.cyan}●${C.reset}`;
 const ARROW = `${C.cyan}▶${C.reset}`;
 function print(...args: string[]) { process.stdout.write(args.join(" ") + "\n"); }
@@ -127,16 +127,12 @@ async function main() {
     }
 
     if (msg.type === "command" && msg.id) {
-      print(`\n${ARROW} ${C.bold}${msg.cmd}${C.reset}`);
+      print(`${ARROW} ${C.bold}${msg.cmd}${C.reset}`);
       const result = await runOneShot(msg.cmd);
       if (result.output) {
         const lines = result.output.split("\n");
         for (const line of lines) process.stdout.write(`${C.dim}  ${line}${C.reset}\n`);
       }
-      const mark = result.exit_code === 0
-        ? `${C.green}  ✓ ${result.exit_code}${C.reset}`
-        : `${C.red}  ✗ ${result.exit_code}${C.reset}`;
-      print(mark);
       sendJson(ws, { type: "command_result", id: msg.id, ...result });
       return;
     }
