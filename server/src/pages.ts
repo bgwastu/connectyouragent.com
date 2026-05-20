@@ -53,7 +53,7 @@ a { color: inherit; }
       <div>Run on the target machine:</div>
       <pre id="cmd"></pre>
       <button id="copy-cmd">Copy</button>
-      <div><strong>Tip:</strong> Run it normally for least privilege. Use sudo only if you want the AI agent to operate as elevated/root.</div>
+      <div><strong>Tip:</strong> Replace <code>bash</code> with <code>sudo bash</code> if you want AI agent to operate as elevated/root.</div>
       <div class="muted">Waiting for connection...</div>
       <div id="expiry" class="muted"></div>
     </div>
