@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { CommandResult, ProtocolMsg, Role } from "./protocol.ts";
 import { audit, closeSession, getSession, setAgentMeta, touchSession, updateSessionStatus } from "./db.ts";
-import { SESSION_IDLE_TIMEOUT, SESSION_MAX_AGE } from "./config.ts";
+import { SESSION_IDLE_TIMEOUT } from "./config.ts";
 
 type WsData = { session: string; role: Role };
 type PendingCommand = {
@@ -22,7 +22,7 @@ interface SessionSlot {
 const sessions = new Map<string, SessionSlot>();
 
 export function isSessionCode(value: string): boolean {
-  return /^\d{6}$/.test(value);
+  return /^[a-z]+-[a-z]+-[a-z]+\d$/.test(value);
 }
 
 export function getOrCreateSlot(code: string): SessionSlot {
@@ -126,6 +126,16 @@ export function handleMessage(ws: ServerWebSocket<unknown>, raw: string) {
     return;
   }
 
+  if ((msg.type === "input" || msg.type === "resize" || msg.type === "signal") && data.role === "client") {
+    if (!slot.agent) {
+      ws.send(JSON.stringify({ type: "error", message: "Agent not connected" }));
+      return;
+    }
+    slot.agent.send(raw);
+    audit(data.session, "client", msg.type);
+    return;
+  }
+
   if (msg.type === "output" && data.role === "agent") {
     slot.client?.send(raw);
     return;
@@ -187,9 +197,8 @@ export function cleanupStaleSlots() {
   const now = Date.now();
   const closed: string[] = [];
   for (const [code, slot] of sessions) {
-    const ageSeconds = (now - slot.createdAt) / 1000;
     const idleSeconds = (now - slot.lastActivity) / 1000;
-    if (ageSeconds > SESSION_MAX_AGE || idleSeconds > SESSION_IDLE_TIMEOUT) {
+    if (!slot.agent && idleSeconds > SESSION_IDLE_TIMEOUT) {
       removeSlot(code, "expired");
       closed.push(code);
     }

@@ -87,10 +87,28 @@ Then send commands:
 {"type":"command","cmd":"pwd"}
 ```
 
+For terminal-like input, send raw input as base64:
+
+```
+{"type":"input","data":"cHdkXHI=","encoding":"base64"}
+```
+
+Resize the PTY:
+
+```
+{"type":"resize","cols":120,"rows":40}
+```
+
+Send Ctrl+C:
+
+```
+{"type":"signal","name":"SIGINT"}
+```
+
 Output streams back as:
 
 ```
-{"type":"output","data":"..."}
+{"type":"output","data":"...","encoding":"base64"}
 ```
 
 ## Safety policy

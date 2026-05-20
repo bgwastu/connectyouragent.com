@@ -3,8 +3,8 @@ import { PORT, HOST, CLEANUP_INTERVAL } from "./config.ts";
 import { cleanupStaleSlots, handleJoin, handleMessage, handleDisconnect } from "./relay.ts";
 import { apiHandler } from "./api.ts";
 import { pagesHandler } from "./pages.ts";
-import { cleanupOldSessions } from "./db.ts";
-import { SESSION_MAX_AGE, SESSION_IDLE_TIMEOUT } from "./config.ts";
+import { cleanupIdleWaitingSessions } from "./db.ts";
+import { SESSION_IDLE_TIMEOUT } from "./config.ts";
 
 // Static file serving for bootstrap.sh and CYA bridge binaries
 async function staticHandler(path: string): Promise<Response | null> {
@@ -80,7 +80,7 @@ console.log(`CYA routes: /, /c/{code}, /c/{code}/prompt, /api/session/{code}/run
 
 // Cleanup timer
 setInterval(() => {
-  const closed = cleanupOldSessions(SESSION_MAX_AGE, SESSION_IDLE_TIMEOUT);
+  const closed = cleanupIdleWaitingSessions(SESSION_IDLE_TIMEOUT);
   const staleSlots = cleanupStaleSlots();
   if (closed > 0) console.log(`Cleaned up ${closed} stale sessions`);
   if (staleSlots.length > 0) console.log(`Closed stale in-memory sessions: ${staleSlots.join(", ")}`);

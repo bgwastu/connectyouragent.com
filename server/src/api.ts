@@ -5,8 +5,12 @@ type SessionResponse = ReturnType<typeof toSessionResponse>;
 const promptTemplate = await Bun.file("./server/templates/raw.md").text();
 
 export function generateCode(): string {
-  const value = crypto.getRandomValues(new Uint32Array(1))[0]! % 900_000;
-  return String(100_000 + value);
+  const adjectives = ["sage", "quiet", "brisk", "bright", "calm", "clever", "gentle", "honest", "lucky", "solar"];
+  const nouns = ["daffodil", "henna", "cedar", "ember", "fig", "harbor", "ivy", "jasmine", "meadow", "willow"];
+  const tails = ["antirust", "gab", "orbit", "signal", "anchor", "cobalt", "delta", "pixel", "raven", "topaz"];
+  const pick = (items: string[]) => items[crypto.getRandomValues(new Uint32Array(1))[0]! % items.length]!;
+  const digit = crypto.getRandomValues(new Uint32Array(1))[0]! % 10;
+  return `${pick(adjectives)}-${pick(nouns)}-${pick(tails)}${digit}`;
 }
 
 export function apiHandler(req: Request, url: URL): Response | Promise<Response> | null {
@@ -25,7 +29,7 @@ export function apiHandler(req: Request, url: URL): Response | Promise<Response>
     return json(listActiveSessions());
   }
 
-  const match = path.match(/^\/api\/session\/(\d{6})(?:\/(run|cmd|disconnect|prompt(?:\.md)?))?$/);
+  const match = path.match(/^\/api\/session\/([a-z]+-[a-z]+-[a-z]+\d)(?:\/(run|cmd|disconnect|prompt(?:\.md)?))?$/);
   if (!match) return null;
 
   const code = match[1]!;

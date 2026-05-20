@@ -23,9 +23,27 @@ export interface MsgCommand {
   id?: string; // for HTTP correlation
 }
 
+export interface MsgInput {
+  type: "input";
+  data: string;
+  encoding?: "utf8" | "base64";
+}
+
+export interface MsgResize {
+  type: "resize";
+  cols: number;
+  rows: number;
+}
+
+export interface MsgSignal {
+  type: "signal";
+  name: "SIGINT" | "SIGTERM" | "SIGKILL" | "SIGHUP" | "SIGQUIT";
+}
+
 export interface MsgOutput {
   type: "output";
   data: string;
+  encoding?: "utf8" | "base64";
   id?: string;
 }
 
@@ -46,7 +64,7 @@ export interface MsgBye {
   reason?: string;
 }
 
-export type ProtocolMsg = MsgJoin | MsgCommand | MsgOutput | MsgCommandResult | MsgError | MsgBye;
+export type ProtocolMsg = MsgJoin | MsgCommand | MsgInput | MsgResize | MsgSignal | MsgOutput | MsgCommandResult | MsgError | MsgBye;
 
 export interface SessionInfo {
   code: string;

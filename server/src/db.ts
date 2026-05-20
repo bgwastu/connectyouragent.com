@@ -66,18 +66,13 @@ export function touchSession(code: string) {
   db.prepare("UPDATE sessions SET updated_at = datetime('now') WHERE code = ?").run(code);
 }
 
-export function cleanupOldSessions(maxAgeSeconds: number, idleSeconds: number) {
+export function cleanupIdleWaitingSessions(idleSeconds: number) {
   const stmt = db.prepare(`
     UPDATE sessions SET status = 'closed', closed_at = datetime('now')
     WHERE status != 'closed'
-    AND (
-      unixepoch('now') - unixepoch(created_at) > ?
-      OR (
-        unixepoch('now') - unixepoch(updated_at) > ?
-        AND status = 'waiting'
-      )
-    )
+    AND status = 'waiting'
+    AND unixepoch('now') - unixepoch(updated_at) > ?
   `);
-  const result = stmt.run(maxAgeSeconds, idleSeconds);
+  const result = stmt.run(idleSeconds);
   return result.changes;
 }
