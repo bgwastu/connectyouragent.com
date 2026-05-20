@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from "bun";
-import type { CommandResult } from "./protocol.ts";
+import type { AgentMeta, CommandResult } from "./protocol.ts";
 
 export type SessionStatus = "waiting" | "active" | "closed";
 
@@ -9,10 +9,20 @@ type PendingCommand = {
   timer: Timer;
 };
 
+export interface Meta {
+  host: string;
+  os: string;
+  arch: string;
+  user: string;
+  cwd: string;
+  shell: string;
+  elevated: boolean;
+}
+
 export interface Session {
   code: string;
   status: SessionStatus;
-  host: string;
+  meta: Meta;
   createdAt: number;
   lastActivity: number;
   agent: ServerWebSocket<unknown> | null;
@@ -25,12 +35,14 @@ export function isSessionCode(value: string): boolean {
   return /^[0-9a-f]{12}$/.test(value);
 }
 
+const emptyMeta: Meta = { host: "", os: "", arch: "", user: "", cwd: "", shell: "", elevated: false };
+
 export function create(code: string): Session {
   const now = Date.now();
   const session: Session = {
     code,
     status: "waiting",
-    host: "",
+    meta: { ...emptyMeta },
     createdAt: now,
     lastActivity: now,
     agent: null,
@@ -44,7 +56,6 @@ export function get(code: string): Session | undefined {
   return sessions.get(code);
 }
 
-/** Read-only access for session lookup (e.g. finding session by agent WS). */
 export function all(): ReadonlyMap<string, Session> {
   return sessions;
 }
@@ -56,7 +67,7 @@ export function list(): { code: string; status: SessionStatus; host: string; cre
     results.push({
       code: s.code,
       status: s.status,
-      host: s.host,
+      host: s.meta.host,
       created_at: new Date(s.createdAt).toISOString(),
     });
   }
@@ -64,11 +75,19 @@ export function list(): { code: string; status: SessionStatus; host: string; cre
   return results;
 }
 
-export function setActive(code: string, host: string, ws: ServerWebSocket<unknown>) {
+export function setActive(code: string, meta: AgentMeta, ws: ServerWebSocket<unknown>) {
   const session = sessions.get(code);
   if (!session) return;
   session.status = "active";
-  session.host = host;
+  session.meta = {
+    host: meta.host,
+    os: meta.os,
+    arch: meta.arch,
+    user: meta.user,
+    cwd: meta.cwd || "",
+    shell: meta.shell || "",
+    elevated: meta.elevated || false,
+  };
   session.agent = ws;
   session.lastActivity = Date.now();
 }

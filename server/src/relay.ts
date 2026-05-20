@@ -22,7 +22,7 @@ export function handleJoin(ws: ServerWebSocket<unknown>, msg: Extract<ProtocolMs
     return;
   }
 
-  store.setActive(msg.session, msg.meta.host, ws);
+  store.setActive(msg.session, msg.meta, ws);
   ws.send(JSON.stringify({ type: "output", data: `Joined session ${msg.session}\n` }));
 }
 

@@ -20,8 +20,8 @@ test("rejects a second agent for the same session code", () => {
   const first = wsStub();
   const second = wsStub();
 
-  handleJoin(first as never, { type: "join", session: code, role: "agent", meta: { host: "test" } });
-  handleJoin(second as never, { type: "join", session: code, role: "agent", meta: { host: "test2" } });
+  handleJoin(first as never, { type: "join", session: code, role: "agent", meta: { host: "test", os: "linux", arch: "x64", user: "test" } });
+  handleJoin(second as never, { type: "join", session: code, role: "agent", meta: { host: "test2", os: "linux", arch: "x64", user: "test2" } });
 
   expect(first.closed).toBe(false);
   expect(second.closed).toBe(true);

@@ -108,7 +108,15 @@ export function toSessionResponse(session: store.Session, baseUrl?: string) {
   return {
     code: session.code,
     status: session.status,
-    host: session.host || undefined,
+    meta: {
+      host: session.meta.host || undefined,
+      os: session.meta.os || undefined,
+      arch: session.meta.arch || undefined,
+      user: session.meta.user || undefined,
+      cwd: session.meta.cwd || undefined,
+      shell: session.meta.shell || undefined,
+      elevated: session.meta.elevated || undefined,
+    },
     created_at: new Date(session.createdAt).toISOString(),
     connect_url: baseUrl ? `${baseUrl}/c/${session.code}` : `/c/${session.code}`,
     prompt_url: baseUrl ? `${baseUrl}/c/${session.code}/prompt.md` : `/c/${session.code}/prompt.md`,
@@ -120,10 +128,16 @@ export function buildPrompt(session: SessionResponse, baseUrl?: string): string 
   const runUrl = baseUrl
     ? `${baseUrl}/api/session/${session.code}/run?cmd=`
     : `/api/session/${session.code}/run?cmd=`;
+  const meta = session.meta;
   return renderTemplate(promptTemplate, {
     code: session.code,
     status: session.status,
-    host: session.host || "unknown",
+    host: meta.host || "unknown",
+    remote: meta.user ? `${meta.user}@${meta.host}` : meta.host || "unknown",
+    os_arch: (meta.os && meta.arch) ? `${meta.os}/${meta.arch}` : "unknown",
+    cwd: meta.cwd || "unknown",
+    shell: meta.shell || "unknown",
+    elevated: meta.elevated ? "yes" : "no",
     created_at: session.created_at,
     connection_status: session.status === "active"
       ? "The agent is connected and ready."

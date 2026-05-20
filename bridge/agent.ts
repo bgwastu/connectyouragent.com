@@ -1,4 +1,4 @@
-import { hostname } from "node:os";
+import { hostname, userInfo } from "node:os";
 import type { ProtocolMsg } from "../server/src/protocol.ts";
 import { parseMessage } from "../server/src/protocol.ts";
 
@@ -10,6 +10,19 @@ const C = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m",
 const DOT = `${C.cyan}●${C.reset}`;
 const ARROW = `${C.cyan}▶${C.reset}`;
 function print(...args: string[]) { process.stdout.write(args.join(" ") + "\n"); }
+
+function safeUser(): string {
+  try { return userInfo().username; } catch {}
+  return process.env.USER || process.env.USERNAME || "unknown";
+}
+
+function isElevated(): boolean {
+  try { return userInfo().uid === 0; } catch {}
+  if (typeof process.getuid === "function") { try { return process.getuid() === 0; } catch {} }
+  if (process.env.SUDO_UID) return true;
+  if (process.platform === "win32") return process.env.USERNAME?.toLowerCase() === "administrator";
+  return false;
+}
 
 function getInteractiveShell(): string {
   if (process.platform === "win32") return "powershell.exe";
@@ -92,7 +105,15 @@ async function main() {
       type: "join",
       session: code,
       role: "agent",
-      meta: { host: hostname() },
+      meta: {
+        host: hostname(),
+        os: process.platform,
+        arch: process.arch,
+        user: safeUser(),
+        cwd: process.cwd(),
+        shell,
+        elevated: isElevated(),
+      },
     });
   };
 

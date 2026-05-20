@@ -11,11 +11,12 @@ main { max-width: 640px; margin: 36px auto; padding: 0 18px; }
 .stack { display: grid; gap: 12px; }
 .header { font-weight: 700; }
 .muted { color: #666; }
-.small { font-size: 12px; }
-.line { border-top: 1px solid #eee; padding-top: 12px; }
-ul { list-style-type: disc; padding-left: 20px; margin: 0px }
+.line { border-top: 1px solid #eee; padding-top: 12px; margin-top: 4px; }
+ul { padding-left: 20px; margin: 0; }
 pre { margin: 0; padding: 12px; overflow-x: auto; white-space: pre-wrap; background: #fafafa; border: 1px solid #eee; border-radius: 4px; }
-button { min-height: 32px; padding-left: 10px; padding-right: 10px; }
+.card { background: #fafafa; border: 1px solid #eee; border-radius: 4px; padding: 12px 14px; }
+.card pre { margin: 0; padding: 0; background: none; border: none; white-space: pre; font: inherit; }
+button { min-height: 32px; padding: 0 10px; font: inherit; cursor: pointer; }
 a { color: inherit; }
 </style>
 </head>
@@ -47,10 +48,10 @@ a { color: inherit; }
     </div>
 
     <div id="active" class="stack line" hidden>
-      <div>Connected</div>
-      <div id="status" class="muted"></div>
+      <div class="header">Connected</div>
+      <div class="card"><pre id="status"></pre></div>
       <button id="disconnect">Disconnect</button>
-      <div class="line">Paste this into any AI coding agent:</div>
+      <div class="header line">AI Prompt</div>
       <pre id="short-prompt"></pre>
       <button id="copy-prompt">Copy Prompt</button>
     </div>
@@ -58,9 +59,9 @@ a { color: inherit; }
 </main>
 
 <script>
-const BASE = location.origin;
-const match = location.pathname.match(new RegExp("^/c/([0-9a-f]{12})"));
-const CODE = match ? match[1] : null;
+var BASE = location.origin;
+var match = location.pathname.match(new RegExp("^/c/([0-9a-f]{12})"));
+var CODE = match ? match[1] : null;
 
 function $(id) { return document.getElementById(id); }
 function promptUrl(code) { return BASE + "/c/" + code + "/prompt.md"; }
@@ -85,7 +86,16 @@ function showWaiting(session) {
 function showActive(session) {
   $("waiting").hidden = true;
   $("active").hidden = false;
-  $("status").textContent = session.host || "connected";
+  var m = session.meta || {};
+  var lines = [
+    "user      " + (m.user || "?"),
+    "host      " + (m.host || "?"),
+    "os/arch   " + (m.os && m.arch ? m.os + "/" + m.arch : "?"),
+    "shell     " + (m.shell || "?"),
+    "cwd       " + (m.cwd || "?")
+  ];
+  if (m.elevated) lines.push("elevated  yes");
+  $("status").textContent = lines.join("\n");
   $("short-prompt").textContent = "Fetch this prompt: " + promptUrl(session.code);
 }
 
@@ -116,7 +126,7 @@ async function main() {
         var r = await fetch(BASE + "/api/session");
         var j = await r.json();
         location.replace("/c/" + j.code);
-      } catch {
+      } catch (_) {
         button.textContent = "Try Again";
         button.disabled = false;
       }
@@ -136,7 +146,7 @@ async function main() {
   setInterval(poll, 1000);
 }
 
-main().catch(function() { $("home").innerHTML = "<div>Connect Your Agent</div><div class='muted'>Failed to create session. Refresh to retry.</div>"; });
+main().catch(function() { $("home").innerHTML = "<div>Connect Your Agent</div><div class='muted'>Failed. Refresh to retry.</div>"; });
 </script>
 </body>
 </html>

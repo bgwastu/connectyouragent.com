@@ -2,7 +2,11 @@
 
 You have shell access to a user-approved machine via CYA.
 
-**Machine:** {{host}}
+**Machine:** {{remote}}
+**OS/arch:** {{os_arch}}
+**CWD:** {{cwd}}
+**Shell:** {{shell}}
+**Elevated:** {{elevated}}
 
 {{connection_status}}
 
@@ -18,9 +22,9 @@ Do not assume a tool exists until you check or the user tells you.
 
 ## Running commands
 
-Prefer curl. Use web_fetch only as fallback.
+### curl (always preferred)
 
-### curl
+curl gives clean raw output and handles binary data. Always prefer it:
 
 ```
 curl -s "{{run_url}}pwd"
@@ -28,14 +32,21 @@ curl -s "{{run_url}}" -d '{"cmd_b64":"ZWNobyBoZWxsbw=="}'
 curl -s "{{run_url}}" -d '{"cmd":"sleep 20","timeout":5}'
 ```
 
-### web_fetch (fallback)
+### web_fetch (use only if curl is unavailable)
+
+Some AI agents provide a web_fetch / read_web_page tool that only supports GET. If that is your only option, use it with these caveats:
+
+- web_fetch often truncates long output — pipe through `head` or `tail` if needed
+- web_fetch can return stale/cached responses — if the output looks stale, there is no workaround; you must switch to curl
+- Special characters break in query strings — use `?cmd_b64=...` (base64) to avoid encoding issues
+- web_fetch cannot handle POST, so `cmd_b64` or `timeout` only work via GET query params
 
 ```
 {{run_url}}pwd
 {{run_url}}?cmd_b64=ZWNobyBoZWxsbw==
 ```
 
-If web_fetch returns stale responses or errors — it's not supported. Use curl.
+If web_fetch returns errors, empty output, or stale responses — it is not supported in your harness. Use curl instead.
 
 ### Session info
 

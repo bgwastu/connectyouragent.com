@@ -7,6 +7,12 @@ export interface MsgJoin {
 
 export interface AgentMeta {
   host: string;
+  os: string;
+  arch: string;
+  user: string;
+  cwd?: string;
+  shell?: string;
+  elevated?: boolean;
 }
 
 export interface MsgCommand {
