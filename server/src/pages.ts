@@ -25,6 +25,11 @@ export function pagesHandler(req: Request, url: URL): Response | null {
     return connectScript(code, effectiveOrigin(req));
   }
 
+  const windowsConnectMatch = path.match(/^\/c\/([0-9a-f]{12})\/windows(?:\.ps1)?$/);
+  if (windowsConnectMatch) {
+    return windowsConnectScript(windowsConnectMatch[1]!, effectiveOrigin(req));
+  }
+
   const promptMatch = path.match(/^\/c\/([0-9a-f]{12})\/prompt(?:\.md)?$/);
   if (promptMatch) {
     const session = store.get(promptMatch[1]!);
@@ -69,6 +74,29 @@ export function pagesHandler(req: Request, url: URL): Response | null {
   }
 
   return null;
+}
+
+function windowsConnectScript(code: string, requestOrigin: string): Response {
+  const wsOrigin = requestOrigin.replace(/^http/, "ws");
+  const script = `$ErrorActionPreference = "Stop"
+$BaseUrl = "${requestOrigin}"
+$BridgeWsUrl = "${wsOrigin}/ws"
+$Code = "${code}"
+$BridgeName = "cya-bridge-windows-x64.exe"
+$InstallDir = Join-Path $env:TEMP "cya"
+$BridgePath = Join-Path $InstallDir $BridgeName
+
+New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+Write-Host "Downloading CYA bridge for Windows x64..."
+Invoke-WebRequest -Uri "$BaseUrl/bin/$BridgeName" -OutFile $BridgePath
+
+$env:BRIDGE_WS_URL = $BridgeWsUrl
+Write-Host "Starting CYA bridge session $Code..."
+& $BridgePath $Code
+`;
+  return new Response(script, {
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
 }
 
 function connectScript(code: string, requestOrigin: string): Response {

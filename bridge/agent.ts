@@ -30,10 +30,22 @@ function getInteractiveShell(): string {
 }
 
 function getPtyCommand(shell: string): string[] {
-  if (process.platform === "darwin" || process.platform === "linux") {
+  if ((process.platform === "darwin" || process.platform === "linux") && commandExists("python3")) {
     return ["python3", "-c", PYTHON_PTY_BRIDGE, shell];
   }
   return [shell];
+}
+
+function commandExists(command: string): boolean {
+  try {
+    const probe = Bun.spawnSync(["/bin/sh", "-lc", `command -v ${command}`], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    return probe.exitCode === 0;
+  } catch {
+    return false;
+  }
 }
 
 const PYTHON_PTY_BRIDGE = String.raw`

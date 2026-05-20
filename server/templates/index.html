@@ -171,7 +171,9 @@
         return BASE + "/c/" + code + "/prompt.md";
       }
       function connectCommand(code) {
-        return "curl -fsSL " + BASE + "/c/" + code + " | bash";
+        return navigator.platform && navigator.platform.toLowerCase().includes("win")
+          ? 'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm ' + BASE + '/c/' + code + '/windows.ps1 | iex"'
+          : "curl -fsSL " + BASE + "/c/" + code + " | bash";
       }
       function expiresAt(session) {
         return Date.parse(session.created_at) + 5 * 60 * 1000;
