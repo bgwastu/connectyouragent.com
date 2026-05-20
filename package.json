@@ -13,7 +13,7 @@
     "start": "bun run server/src/index.ts",
     "prestart": "bun run build:bridge",
     "build:bridge": "bun run bridge/build.ts",
-    "dev": "bun --hot run server/src/index.ts",
+    "dev": "bun run server/src/index.ts",
     "predev": "bun run build:bridge"
   },
   "type": "module"

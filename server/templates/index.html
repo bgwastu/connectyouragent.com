@@ -34,6 +34,9 @@
       .muted {
         color: #666;
       }
+      .small {
+        font-size: 12px;
+      }
       .line {
         border-top: 1px solid #eee;
         padding-top: 12px;
@@ -69,13 +72,13 @@
       <div id="home" class="stack">
         <div class="header">Connect Your Agent</div>
         <div class="muted">
-          Temporary shell access for AI agents. Create a session, run one
-          command on the target machine, then paste the prompt into Claude Code,
-          Codex, OpenClaw, or another AI agent.
+          Gives any AI agent temporary shell access to a machine. Create a
+          session, run one command, then paste the prompt into Claude Code,
+          Codex, OpenClaw, or any other agent.
         </div>
-        <div class="muted small">
-          Active sessions run in-memory only.
-          <u>Nothing is logged or stored</u>.
+        <div class="muted">
+          Nothing is logged or stored -
+          <u>sessions run in-memory only.</u>
         </div>
         <div class="header line">Use Cases</div>
         <ul>
@@ -88,10 +91,10 @@
             recovery environment.
           </li>
         </ul>
-        <div class="muted">
+        <button id="create-session">Create Session</button>
+        <div class="muted small">
           Supported: macOS Intel/Apple Silicon, Linux x64/arm64, Windows x64.
         </div>
-        <button id="create-session">Create Session</button>
       </div>
 
       <div id="session" class="stack" hidden>
@@ -106,12 +109,12 @@
             to operate as root.
           </div>
           <div class="muted">Waiting for connection...</div>
-          <div id="expiry" class="muted"></div>
+          <div id="expiry" class="muted small"></div>
         </div>
 
-    <div id="active" class="stack line" hidden>
-      <div class="header" id="connected-to"></div>
-      <pre id="status"></pre>
+        <div id="active" class="stack line" hidden>
+          <div class="header" id="connected-to"></div>
+          <pre id="status"></pre>
           <button id="disconnect">Disconnect</button>
           <div class="line">
             Paste this into any AI coding agent (Claude Code, Codex, OpenClaw,
@@ -163,7 +166,8 @@
         $("waiting").hidden = true;
         $("active").hidden = false;
         var m = session.meta || {};
-        $("connected-to").textContent = "Connected to: " + (m.user || "?") + "@" + (m.host || "?");
+        $("connected-to").textContent =
+          "Connected to: " + (m.user || "?") + "@" + (m.host || "?");
         var lines = [];
         if (m.os && m.arch) lines.push("OS: " + m.os + "/" + m.arch);
         if (m.shell) lines.push("Current shell: " + m.shell);
@@ -174,10 +178,14 @@
       }
 
       function updateExpiry(session) {
-        var seconds = Math.max(0, Math.ceil((expiresAt(session) - Date.now()) / 1000));
+        var seconds = Math.max(
+          0,
+          Math.ceil((expiresAt(session) - Date.now()) / 1000),
+        );
         var minutes = String(Math.floor(seconds / 60)).padStart(2, "0");
         var remainder = String(seconds % 60).padStart(2, "0");
-        $("expiry").textContent = seconds > 0 ? "Expires in " + minutes + ":" + remainder : "Expired";
+        $("expiry").textContent =
+          seconds > 0 ? "Expires in " + minutes + ":" + remainder : "Expired";
       }
 
       async function poll() {
