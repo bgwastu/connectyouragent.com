@@ -1,7 +1,7 @@
 import { hostname, userInfo } from "node:os";
 import type { ProtocolMsg } from "../server/src/protocol.ts";
 
-const WS_URL = process.env.BRIDGE_WS_URL || "wss://cya.wastu.net/ws";
+const WS_URL = requiredEnv("BRIDGE_WS_URL");
 
 function getInteractiveShell(): string[] {
   if (process.platform === "win32") return ["cmd.exe"];
@@ -64,6 +64,16 @@ async function main() {
     const msg = parseMessage(String(event.data));
     if (!msg) return;
 
+    if (msg.type === "error") {
+      console.error(`[CYA] Server error: ${msg.message}`);
+      return;
+    }
+
+    if (msg.type === "output" && msg.data.startsWith("[CYA]")) {
+      console.log(msg.data.trimEnd());
+      return;
+    }
+
     if (msg.type === "command" && msg.id) {
       const result = await runOneShot(msg.cmd);
       ws.send(JSON.stringify({ type: "command_result", id: msg.id, ...result }));
@@ -80,8 +90,15 @@ async function main() {
     }
   };
 
-  ws.onclose = () => {
-    console.log("\n[CYA] Connect Your Agent connection closed.");
+  ws.onerror = (event) => {
+    console.error("[CYA] WebSocket error:", event);
+  };
+
+  ws.onclose = (event) => {
+    const detail = event.code || event.reason
+      ? ` code=${event.code} reason=${event.reason || "none"}`
+      : "";
+    console.log(`\n[CYA] Connect Your Agent connection closed.${detail}`);
     proc.kill(15);
     process.exit(0);
   };
@@ -150,3 +167,9 @@ main().catch((error) => {
   console.error("[CYA] Agent error:", error);
   process.exit(1);
 });
+
+function requiredEnv(key: string): string {
+  const value = process.env[key];
+  if (!value) throw new Error(`Missing env var: ${key}`);
+  return value;
+}

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 data/
+public/bin/
 .env
 *.log
 .DS_Store
