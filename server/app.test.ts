@@ -269,11 +269,8 @@ const wsUrl = `ws://127.0.0.1:${port}/ws`;
 let server: Bun.Subprocess | null = null;
 let bridge: Bun.Subprocess | null = null;
 
-const bridgeModuleDir = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "bridge",
-);
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const bridgeModuleDir = join(repoRoot, "bridge");
 
 beforeAll(async () => {
   server = Bun.spawn(["bun", "run", "server/index.ts"], {
@@ -298,8 +295,9 @@ describe("full local server and bridge flow", () => {
     const session = await postJson(`${baseUrl}/api/session`, {}) as { code: string };
     expect(session.code).toMatch(/^[0-9a-f]{12}$/);
 
-    bridge = Bun.spawn(["go", "run", ".", session.code], {
-      cwd: bridgeModuleDir,
+    const bridgeCommand = await bridgeSpawnCommand(session.code);
+    bridge = Bun.spawn(bridgeCommand.argv, {
+      cwd: bridgeCommand.cwd,
       stdout: "inherit",
       stderr: "inherit",
       env: { ...process.env, BRIDGE_WS_URL: wsUrl },
@@ -395,4 +393,17 @@ function sleepCommand(seconds: number): string {
     return `powershell -NoProfile -Command "Start-Sleep -Seconds ${seconds}"`;
   }
   return `sleep ${seconds}`;
+}
+
+async function bridgeSpawnCommand(code: string): Promise<{
+  argv: string[];
+  cwd: string;
+}> {
+  const os = process.platform === "win32" ? "windows" : process.platform;
+  const exe = os === "windows" ? ".exe" : "";
+  const binary = join(repoRoot, "public", "bin", `cya-bridge-${os}-${process.arch}${exe}`);
+  if (await Bun.file(binary).exists()) {
+    return { argv: [binary, code], cwd: repoRoot };
+  }
+  return { argv: ["go", "run", ".", code], cwd: bridgeModuleDir };
 }

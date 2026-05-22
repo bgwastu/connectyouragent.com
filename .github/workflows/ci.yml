@@ -45,5 +45,9 @@ jobs:
         env:
           BUILD_TARGETS: windows_amd64
 
+      - name: Test bridge
+        working-directory: bridge
+        run: go test ./...
+
       - name: Run tests
         run: bun test
