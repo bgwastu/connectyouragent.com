@@ -16,5 +16,5 @@
     "rootDir": ".",
     "types": ["bun-types"]
   },
-  "include": ["server/**/*", "bridge/**/*"]
+  "include": ["server/**/*"]
 }

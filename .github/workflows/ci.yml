@@ -24,21 +24,26 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ">=1.22.0"
+
       - name: Install dependencies
         run: bun install
 
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Build bridge binaries
+      - name: Build bridge binaries (Go cross-compile)
         if: runner.os != 'Windows'
         run: bun run build
 
       - name: Build Windows bridge binary
         if: runner.os == 'Windows'
-        run: bun run build:bridge
+        run: bun run build
         env:
-          BUILD_TARGETS: bun-windows-x64
+          BUILD_TARGETS: windows_amd64
 
       - name: Run tests
         run: bun test

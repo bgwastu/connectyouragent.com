@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Connect Your Agent</title>
+<style>
+body{margin:0;background:#fff;color:#111;font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}main{max-width:640px;margin:36px auto;padding:0 18px}a,button{color:inherit;font:inherit}button{min-height:32px;cursor:pointer}ul{margin:0;padding-left:20px}[hidden]{display:none!important}.stack{display:grid;gap:12px}.row{display:flex;align-items:center;justify-content:space-between;gap:12px}.bold{font-weight:700}.muted{color:#666}.small{font-size:12px}.line{margin-top:4px;padding-top:12px;border-top:1px solid #eee}.tabs{display:flex;margin-bottom:10px;border-bottom:1px solid #eee}.tab{margin-bottom:-1px;padding:8px 12px;background:transparent;border:0;border-bottom:2px solid transparent;color:#666}.tab[aria-selected=true]{color:#111;border-bottom-color:#111}.card{box-sizing:border-box;max-width:100%;margin:0;padding:12px;background:#fafafa;border:1px solid #eee;border-radius:4px;font:inherit;user-select:text;-webkit-user-select:text}.cmd{white-space:pre;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;tab-size:2}.wrap{white-space:pre-wrap;overflow-wrap:anywhere}
+</style>
+</head>
+<body>
+<main>
+<section id="home" class="stack">
+  <div class="row bold"><div>Connect Your Agent</div><a class="small" href="https://github.com/bgwastu/cya" target="_blank" rel="noreferrer" style="text-decoration:none">Source Code</a></div>
+  <p class="muted" style="margin:0">Gives any AI agent temporary shell access to a machine. Create a session, run one command, then paste the prompt into Claude Code, Codex, OpenClaw, or any other agent.</p>
+  <p class="muted" style="margin:0">Nothing is logged or stored - <u>sessions run in-memory only.</u></p>
+  <div class="line bold">Use Cases</div>
+  <ul>
+    <li>Ask AI to check why your server is running out of disk space at 3am.</li>
+    <li>Ask AI to set up a new dev machine while you keep working.</li>
+    <li>Give AI temporary access to a throwaway machine, lab box, or recovery environment.</li>
+    <li>Debug your home router without pasting screenshots into chats.</li>
+  </ul>
+  <button id="create-session" type="button">Create Session</button>
+  <div class="muted small">Supported: macOS, Windows x64, Linux, OpenWrt / MIPS routers.</div>
+</section>
+
+<section id="session" class="stack" hidden>
+  <a href="/">Go to Home</a>
+  <div id="waiting" class="stack line">
+    <div>Run on the target machine:</div>
+    <div class="tabs" aria-label="Install command for your OS">
+      <button class="tab" id="tab-unix" type="button" aria-selected="true">Linux / macOS</button>
+      <button class="tab" id="tab-router" type="button" aria-selected="false">Router (MIPS)</button>
+      <button class="tab" id="tab-win" type="button" aria-selected="false">Windows</button>
+    </div>
+    <pre id="cmd-unix" class="card cmd"></pre>
+    <pre id="cmd-router" class="card cmd" hidden></pre>
+    <pre id="cmd-win" class="card cmd" hidden></pre>
+    <button id="copy-cmd" type="button">Copy</button>
+    <div id="connect-tip"></div>
+    <div class="muted">Waiting for connection...</div>
+    <div id="expiry" class="muted small"></div>
+  </div>
+  <div id="active" class="stack line" hidden>
+    <div id="connected-to" class="bold"></div>
+    <pre id="status" class="card wrap"></pre>
+    <button id="disconnect" type="button">Disconnect</button>
+    <div class="line">Paste this into any AI coding agent (Claude Code, Codex, OpenClaw, etc.) to start controlling your computer:</div>
+    <pre id="short-prompt" class="card wrap"></pre>
+    <button id="copy-prompt" type="button">Copy Prompt</button>
+  </div>
+</section>
+</main>
+
+<script>
+var BASE=location.origin;
+var CODE=(location.pathname.match(/^\/c\/([0-9a-f]{12})/)||[])[1];
+var TAB=likelyWindows()?"win":"unix";
+var TIPS={
+  unix:"<strong>Tip:</strong> Use <code>sudo bash</code> if you want the AI to operate as root.",
+  router:"<strong>Tip:</strong> This code uses <code>wget</code>, which BusyBox/OpenWrt usually ships with; you don't need <code>curl</code>. Run as root on the router only if needed.",
+  win:"<strong>Tip:</strong> Use <strong>PowerShell</strong>; run as Administrator if you need admin access."
+};
+function $(id){return document.getElementById(id)}
+function setText(id,text){var el=$(id);if(el.textContent!==text)el.textContent=text}
+function likelyWindows(){var p=(navigator.userAgentData&&navigator.userAgentData.platform)||navigator.platform||"";return /win/i.test(p)||/Windows/i.test(navigator.userAgent||"")}
+function promptUrl(code){return BASE+"/c/"+code+"/prompt.md"}
+function unixCmd(code){return "curl -fsSL "+BASE+"/c/"+code+" | bash"}
+function routerCmd(code){return "wget -qO- "+BASE+"/c/"+code+" | sh"}
+function winCmd(code){return "irm '"+BASE+"/c/"+code+"/windows.ps1' | iex"}
+function selectTab(which){TAB=which;["unix","router","win"].forEach(function(name){$("tab-"+name).setAttribute("aria-selected",name===TAB?"true":"false");$("cmd-"+name).hidden=name!==TAB});$("connect-tip").innerHTML=TIPS[TAB]}
+function activeCommandId(){return TAB==="win"?"cmd-win":TAB==="router"?"cmd-router":"cmd-unix"}
+function expiresAt(s){return Date.parse(s.created_at)+5*60*1000}
+function updateExpiry(s){var sec=Math.max(0,Math.ceil((expiresAt(s)-Date.now())/1000));var min=String(Math.floor(sec/60)).padStart(2,"0");var rem=String(sec%60).padStart(2,"0");$("expiry").textContent=sec>0?"Expires in "+min+":"+rem:"Expired"}
+async function copyText(id,button,label){await navigator.clipboard.writeText($(id).textContent);var old=button.textContent;button.textContent=label;button.disabled=true;setTimeout(function(){button.textContent=old;button.disabled=false},1200)}
+function showWaiting(s){$("waiting").hidden=false;$("active").hidden=true;setText("cmd-unix",unixCmd(s.code));setText("cmd-router",routerCmd(s.code));setText("cmd-win",winCmd(s.code));updateExpiry(s)}
+function showActive(s){$("waiting").hidden=true;$("active").hidden=false;var m=s.meta||{};setText("connected-to","Connected to: "+(m.user||"?")+"@"+(m.host||"?"));var lines=[];if(m.os&&m.arch)lines.push("OS: "+m.os+"/"+m.arch);if(m.shell)lines.push("Current shell: "+m.shell);if(m.cwd)lines.push("Current directory: "+m.cwd);setText("status",lines.join("\n"));setText("short-prompt","Follow this instruction: "+promptUrl(s.code))}
+async function poll(){var res=await fetch(BASE+"/api/session/"+CODE);if(res.status===404)return location.replace("/");if(!res.ok)return;var s=await res.json();s.status==="active"?showActive(s):showWaiting(s)}
+async function main(){
+  if(!CODE){$("create-session").onclick=async function(){var b=this;b.textContent="Creating...";b.disabled=true;try{var r=await fetch(BASE+"/api/session");var s=await r.json();location.replace("/c/"+s.code)}catch(_){b.textContent="Try Again";b.disabled=false}};return}
+  $("home").hidden=true;$("session").hidden=false;["unix","router","win"].forEach(function(name){$("tab-"+name).onclick=function(){selectTab(name)}});$("copy-cmd").onclick=function(){copyText(activeCommandId(),this,"Copied")};$("copy-prompt").onclick=function(){copyText("short-prompt",this,"Copied")};$("disconnect").onclick=async function(){await fetch(BASE+"/api/session/"+CODE+"/disconnect");location.replace("/")};selectTab(TAB);await poll();setInterval(poll,1000)
+}
+main().catch(function(){$("home").innerHTML='<div>Connect Your Agent</div><div class="muted">Failed. Refresh to retry.</div>'});
+</script>
+</body>
+</html>

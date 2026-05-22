@@ -14,9 +14,8 @@ Start by inspecting the environment:
 
 ```
 whoami && uname -a && pwd
+curl -s "{{base_url}}/api/session/{{code}}"
 ```
-
-Do not assume a tool exists until you check or the user tells you.
 
 ## Running commands
 
@@ -24,41 +23,34 @@ Avoid commands that require terminal input, full-screen TUIs, cursor control, or
 
 For multi-line scripts, complex quoting, pipes, JSON, or special characters, send the command as base64 with `cmd_b64`.
 
+Run one command at a time; wait for a response before sending the next.
+
+Default timeout is 30s. Override with `{"timeout": N}`. Output is truncated at 131072 bytes; pipe through `head`, `tail`, or filters proactively. stdout and stderr are merged in `output`; response JSON includes `exit_code` for checking command success and `truncated` for detecting capped output.
+
 ### curl (always preferred)
 
 curl gives clean raw output and handles binary data. Always prefer it:
 
 ```
-curl -s "{{run_url}}pwd"
 curl -s "{{run_url}}" -d '{"cmd_b64":"ZWNobyBoZWxsbw=="}'
 curl -s "{{run_url}}" -d '{"cmd":"sleep 20","timeout":5}'
 ```
 
-### web_fetch (use only if curl is unavailable)
+### web_fetch (restricted agents only)
 
-Some AI agents provide a web_fetch / read_web_page tool that only supports GET. If that is your only option, use it with these caveats:
+Use web_fetch / read_web_page only when your environment cannot run outbound commands like `curl`, but the agent has a built-in web fetch tool. It only supports GET:
 
-- web_fetch often truncates long output — pipe through `head` or `tail` if needed
-- web_fetch can return stale/cached responses — if the output looks stale, there is no workaround; you must switch to curl
-- Special characters break in query strings — use `?cmd_b64=...` (base64) to avoid encoding issues
-- web_fetch cannot handle POST, so `cmd_b64` or `timeout` only work via GET query params
+- Output may be truncated or cached — pipe through `head` or `tail`; there is no workaround for stale data
+- Use `?cmd_b64=...` for special characters; web_fetch cannot POST
 
 ```
 {{run_url}}pwd
-{{run_url}}?cmd_b64=ZWNobyBoZWxsbw==
-```
-
-If web_fetch returns errors, empty output, or stale responses — it is not supported in your harness. Use curl instead.
-
-### Session info
-
-```
-curl -s "{{base_url}}/api/session/{{code}}"
+{{base_url}}/api/session/{{code}}/run?cmd_b64=ZWNobyBoZWxsbw==
 ```
 
 ## Safety
 
-You may run any shell command. Be transparent about what you are doing.
+Be transparent about what you are doing. Avoid commands that consume excessive memory or CPU; the target machine may be resource-constrained.
 
 Briefly explain before commands that are destructive, expose secrets, make system changes, push to remotes, or could impact other users. You do not need to ask permission — just flag the risk.
 

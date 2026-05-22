@@ -1,24 +1,19 @@
 {
   "name": "cya",
   "version": "0.1.0",
-  "module": "server/src/index.ts",
+  "license": "MIT",
+  "type": "module",
   "devDependencies": {
     "@types/bun": "latest",
     "bun-types": "latest",
     "typescript": "^5.0.0"
   },
-  "description": "Connect Your Agent — temporary bridge for AI shell access",
-  "license": "MIT",
   "scripts": {
-    "start": "bun run server/src/index.ts",
-    "prestart": "bun run build:bridge",
-    "build:bridge": "bun run bridge/build.ts",
-    "build": "bun run build:bridge",
+    "build": "sh scripts/build-bridge.sh",
+    "start": "bun server/index.ts",
+    "dev": "bun run build && bun run start",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "verify": "bun run typecheck && bun run build && bun test",
-    "dev": "bun run server/src/index.ts",
-    "predev": "bun run build:bridge"
-  },
-  "type": "module"
+    "verify": "bun run typecheck && bun run build && bun test"
+  }
 }
