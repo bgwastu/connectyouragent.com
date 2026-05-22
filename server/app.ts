@@ -10,6 +10,9 @@ function env(key: string, fallback?: string): string {
 export const PORT = parseInt(env("PORT", "8765"), 10);
 export const HOST = env("HOST", "0.0.0.0");
 const SESSION_IDLE_TIMEOUT = parseInt(env("SESSION_IDLE_TIMEOUT", "300"), 10);
+const MAX_COMMAND_BODY_BYTES = 64 * 1024;
+const MIN_COMMAND_TIMEOUT_SECONDS = 1;
+const MAX_COMMAND_TIMEOUT_SECONDS = 60 * 60;
 
 const NO_CACHE = {
   "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
@@ -65,7 +68,13 @@ interface Session {
 
 type ProtocolMsg =
   | { type: "join"; session: string; role: "agent"; meta: AgentMeta }
-  | { type: "command_result"; id: string; output: string; exit_code: number; truncated?: boolean }
+  | {
+      type: "command_result";
+      id: string;
+      output: string;
+      exit_code: number;
+      truncated?: boolean;
+    }
   | { type: "error"; message: string }
   | { type: "bye"; reason?: string };
 
@@ -112,32 +121,11 @@ export function closeSession(code: string): void {
   sessions.delete(code);
 }
 
-export function listSessions(): {
-  code: string;
-  status: "waiting" | "active";
-  host: string;
-  created_at: string;
-}[] {
-  idleSweep();
-  const result = [];
-  for (const session of sessions.values()) {
-    result.push({
-      code: session.code,
-      status: sessionStatus(session),
-      host: session.meta?.host || "",
-      created_at: new Date(session.createdAt).toISOString(),
-    });
-  }
-  return result.sort((a, b) => a.created_at.localeCompare(b.created_at));
-}
-
 export const routes = {
   "/": homeRoute,
   "/api/session": {
-    GET: createSessionRoute,
     POST: createSessionRoute,
   },
-  "/api/sessions": { GET: () => json(listSessions()) },
   "/api/session/:code": { GET: sessionInfoRoute },
   "/api/session/:code/disconnect": {
     GET: disconnectRoute,
@@ -158,6 +146,7 @@ export function homeRoute(): Response {
 }
 
 export function createSessionRoute(req: Request): Response {
+  if (req.method !== "POST") return methodNotAllowed(["POST"]);
   const origin = effectiveOrigin(req);
   const code = createUniqueSessionCode();
   createSession(code);
@@ -263,10 +252,15 @@ export function handleJoin(
   };
   session.agent = ws;
   session.lastActivity = Date.now();
-  ws.send(JSON.stringify({ type: "output", data: `Joined session ${msg.session}\n` }));
+  ws.send(
+    JSON.stringify({ type: "output", data: `Joined session ${msg.session}\n` }),
+  );
 }
 
-export function handleAgentMessage(ws: ServerWebSocket<unknown>, raw: string): void {
+export function handleAgentMessage(
+  ws: ServerWebSocket<unknown>,
+  raw: string,
+): void {
   const msg = parseMessage(raw);
   if (!msg || msg.type !== "command_result") return;
 
@@ -306,7 +300,10 @@ export async function requestHandler(
     return new Response("WebSocket upgrade failed", { status: 400 });
   }
 
-  return (await staticHandler(url.pathname)) || new Response("Not found", { status: 404 });
+  return (
+    (await staticHandler(url.pathname)) ||
+    new Response("Not found", { status: 404 })
+  );
 }
 
 export function startServer() {
@@ -345,16 +342,20 @@ async function handleCommand(
   try {
     parsed = await getCommand(req, url);
   } catch (error) {
+    const status = error instanceof PayloadTooLargeError ? 413 : 400;
     return json(
       { error: error instanceof Error ? error.message : "Invalid command" },
-      400,
+      status,
     );
   }
   if (!parsed) {
-    return json({
-      error:
-        'Missing cmd. Use ?cmd=... for GET or JSON {"cmd":"..."} or {"cmd_b64":"..."}.',
-    }, 400);
+    return json(
+      {
+        error:
+          'Missing cmd. Use ?cmd=... for GET or JSON {"cmd":"..."} or {"cmd_b64":"..."}.',
+      },
+      400,
+    );
   }
   if (session.pendingHttp.size > 0) {
     return json({ error: "Command already running" }, 409);
@@ -374,7 +375,8 @@ async function getCommand(
   req: Request,
   url: URL,
 ): Promise<{ cmd: string; timeout?: number } | null> {
-  const queryCmd = url.searchParams.get("cmd") || url.searchParams.get("command");
+  const queryCmd =
+    url.searchParams.get("cmd") || url.searchParams.get("command");
   const queryB64 = url.searchParams.get("cmd_b64");
   if (queryB64) {
     const decoded = decodeBase64Command(queryB64);
@@ -384,16 +386,17 @@ async function getCommand(
   if (req.method !== "POST") return null;
 
   try {
-    const body = await req.json() as {
+    const body = await readJsonBody(req) as {
       cmd?: unknown;
       command?: unknown;
       cmd_b64?: unknown;
       timeout?: unknown;
     };
     let cmd = typeof body.cmd === "string" && body.cmd.trim() ? body.cmd : null;
-    cmd ??= typeof body.command === "string" && body.command.trim()
-      ? body.command
-      : null;
+    cmd ??=
+      typeof body.command === "string" && body.command.trim()
+        ? body.command
+        : null;
     if (!cmd && typeof body.cmd_b64 === "string") {
       const decoded = decodeBase64Command(body.cmd_b64);
       if (decoded) cmd = decoded;
@@ -401,13 +404,46 @@ async function getCommand(
     if (!cmd) return null;
     return {
       cmd,
-      timeout: typeof body.timeout === "number" && body.timeout > 0
-        ? body.timeout
-        : undefined,
+      timeout: parseCommandTimeout(body.timeout),
     };
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
   }
+}
+
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super(`Request body must be ${MAX_COMMAND_BODY_BYTES} bytes or smaller`);
+  }
+}
+
+async function readJsonBody(req: Request): Promise<unknown> {
+  const contentLength = Number(req.headers.get("Content-Length") || "0");
+  if (contentLength > MAX_COMMAND_BODY_BYTES) {
+    throw new PayloadTooLargeError();
+  }
+
+  const raw = await req.text();
+  if (new TextEncoder().encode(raw).byteLength > MAX_COMMAND_BODY_BYTES) {
+    throw new PayloadTooLargeError();
+  }
+  return JSON.parse(raw);
+}
+
+function parseCommandTimeout(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < MIN_COMMAND_TIMEOUT_SECONDS ||
+    value > MAX_COMMAND_TIMEOUT_SECONDS
+  ) {
+    throw new Error(
+      `Invalid timeout: expected ${MIN_COMMAND_TIMEOUT_SECONDS}-${MAX_COMMAND_TIMEOUT_SECONDS} seconds`,
+    );
+  }
+  return value;
 }
 
 function decodeBase64Command(value: string): string | null {
@@ -425,7 +461,9 @@ function decodeBase64Command(value: string): string | null {
   }
 
   try {
-    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes).trim();
+    const decoded = new TextDecoder("utf-8", { fatal: true })
+      .decode(bytes)
+      .trim();
     return decoded || null;
   } catch {
     throw new Error("Invalid cmd_b64: expected base64-encoded UTF-8");
@@ -440,12 +478,14 @@ function executeHttpCommand(
   if (!session.agent) return Promise.reject(new Error("Agent not connected"));
 
   const id = crypto.randomUUID();
-  const timeoutMs = Math.max(1000, Math.min((timeoutSec ?? 30) * 1000, 300_000));
+  const timeoutMs = (timeoutSec ?? 30) * 1000;
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       session.pendingHttp.delete(id);
-      reject(new Error(`Command timed out after ${Math.round(timeoutMs / 1000)}s`));
+      reject(
+        new Error(`Command timed out after ${Math.round(timeoutMs / 1000)}s`),
+      );
     }, timeoutMs);
 
     session.pendingHttp.set(id, { resolve, reject, timer });
@@ -479,7 +519,9 @@ export function toSessionResponse(session: Session, baseUrl?: string) {
       elevated: meta?.elevated,
     },
     created_at: new Date(session.createdAt).toISOString(),
-    connect_url: baseUrl ? `${baseUrl}/c/${session.code}` : `/c/${session.code}`,
+    connect_url: baseUrl
+      ? `${baseUrl}/c/${session.code}`
+      : `/c/${session.code}`,
     prompt_url: baseUrl
       ? `${baseUrl}/c/${session.code}/prompt.md`
       : `/c/${session.code}/prompt.md`,
@@ -503,9 +545,10 @@ export function buildPrompt(
     cwd: meta.cwd || "unknown",
     shell: meta.shell || "unknown",
     elevated: meta.elevated ? "yes" : "no",
-    connection_status: session.status === "active"
-      ? "The agent is connected and ready."
-      : "The bridge is not connected yet. Do not run commands or retry requests until the user connects the target machine.",
+    connection_status:
+      session.status === "active"
+        ? "The agent is connected and ready."
+        : "The bridge is not connected yet. Do not run commands or retry requests until the user connects the target machine.",
     run_url: baseUrl
       ? `${baseUrl}/api/session/${session.code}/run?cmd=`
       : `/api/session/${session.code}/run?cmd=`,
@@ -518,11 +561,13 @@ function connectUnixScript(code: string, origin: string): Response {
 }
 
 function connectWindowsScript(code: string, origin: string): Response {
-  return text(renderTemplate(connectWindowsPs1, {
-    origin,
-    ws_origin: origin.replace(/^https:/, "wss:").replace(/^http:/, "ws:"),
-    code,
-  }));
+  return text(
+    renderTemplate(connectWindowsPs1, {
+      origin,
+      ws_origin: origin.replace(/^https:/, "wss:").replace(/^http:/, "ws:"),
+      code,
+    }),
+  );
 }
 
 async function staticHandler(path: string): Promise<Response | null> {
@@ -539,7 +584,7 @@ async function staticHandler(path: string): Promise<Response | null> {
 function parseMessage(raw: string): ProtocolMsg | null {
   try {
     const msg = JSON.parse(raw) as Partial<ProtocolMsg>;
-    return typeof msg.type === "string" ? msg as ProtocolMsg : null;
+    return typeof msg.type === "string" ? (msg as ProtocolMsg) : null;
   } catch {
     return null;
   }
@@ -553,7 +598,9 @@ function rejectJoin(ws: ServerWebSocket<unknown>, message: string): void {
 function idleSweep(): void {
   const closed = cleanup(SESSION_IDLE_TIMEOUT);
   if (closed.length) {
-    console.log(`Cleaned up ${closed.length} stale sessions: ${closed.join(", ")}`);
+    console.log(
+      `Cleaned up ${closed.length} stale sessions: ${closed.join(", ")}`,
+    );
   }
 }
 
@@ -571,12 +618,16 @@ function cleanup(idleSeconds: number): string[] {
 }
 
 function effectiveOrigin(req: Request): string {
-  const proto = req.headers.get("X-Forwarded-Proto") === "https" ? "https" : "http";
+  const proto =
+    req.headers.get("X-Forwarded-Proto") === "https" ? "https" : "http";
   const host = req.headers.get("Host") || "localhost";
   return `${proto}://${host}`;
 }
 
-function renderTemplate(template: string, values: Record<string, string>): string {
+function renderTemplate(
+  template: string,
+  values: Record<string, string>,
+): string {
   return template.replace(
     /{{\s*([a-zA-Z0-9_]+)\s*}}/g,
     (_match, key) => values[key] ?? "",
@@ -610,4 +661,15 @@ function text(data: string): Response {
 
 function notFound(): Response {
   return json({ error: "Not found" }, 404);
+}
+
+function methodNotAllowed(allowed: string[]): Response {
+  return new Response(JSON.stringify({ error: "Method not allowed" }), {
+    status: 405,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      Allow: allowed.join(", "),
+      ...NO_CACHE,
+    },
+  });
 }

@@ -1,8 +1,8 @@
-# CYA
+# Connect Your Agent (CYA)
 
-Connect Your Agent. Give an AI agent temporary, user-approved command access to a machine.
+CYA gives an AI agent temporary, user-approved command access to a machine.
 
-CYA starts an in-memory session, shows a one-line install command for the target machine, and gives you a prompt URL to paste into Claude Code, Codex, OpenClaw, or another agent. The bridge connects back over WebSocket and executes one command at a time through the HTTP API.
+Start a session, run the displayed install command on the target machine, then paste the generated prompt into Claude Code, Codex, OpenClaw, or another agent. Sessions are in-memory only and commands run one at a time.
 
 ## Quick Start
 
@@ -13,21 +13,12 @@ bun dev
 
 Open `http://localhost:8765`, create a session, run the displayed command on the target machine, then paste the generated prompt into your agent.
 
-The bridge binaries are built with Go, so local development needs **Go 1.22+**.
-
 ## Docker
 
 ```sh
 docker build -t cya .
 docker run --rm -p 8765:8765 -e BASE_URL=http://localhost:8765 cya
 ```
-
-## Supported Targets
-
-- macOS Intel / Apple Silicon
-- Linux x64 / arm64
-- OpenWrt-style Linux MIPS / MIPS64, big-endian and little-endian
-- Windows x64
 
 ## How It Works
 
@@ -48,4 +39,4 @@ bun test
 bun run build
 ```
 
-`bun run build` compiles bridge binaries into `public/bin/`.
+Local development needs Bun and Go 1.22+. `bun run build` compiles bridge binaries into `public/bin/`.

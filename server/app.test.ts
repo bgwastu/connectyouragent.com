@@ -15,6 +15,7 @@ import {
   homeRoute,
   isSessionCode,
   promptRoute,
+  routes,
   sessionInfoRoute,
   toSessionResponse,
 } from "./app.ts";
@@ -63,24 +64,35 @@ describe("session API", () => {
     }
   });
 
-  test("creates sessions through GET and POST", async () => {
-    for (const method of ["GET", "POST"] as const) {
-      const req = new Request("http://test.local/api/session", {
-        method,
-        headers: { Host: "test.local" },
-      });
-      const res = createSessionRoute(req);
-      expect(res).toBeInstanceOf(Response);
-      const body = await json(res) as {
-        code: string;
-        status: string;
-        connect_url: string;
-      };
-      track(body.code);
-      expect(isSessionCode(body.code)).toBe(true);
-      expect(body.status).toBe("waiting");
-      expect(body.connect_url).toBe(`http://test.local/c/${body.code}`);
-    }
+  test("does not expose session enumeration", () => {
+    expect("/api/sessions" in routes).toBe(false);
+  });
+
+  test("creates sessions through POST only", async () => {
+    expect((routes["/api/session"] as Record<string, unknown>).GET).toBeUndefined();
+
+    const getRes = createSessionRoute(new Request("http://test.local/api/session", {
+      method: "GET",
+      headers: { Host: "test.local" },
+    }));
+    expect(getRes.status).toBe(405);
+    expect(getRes.headers.get("Allow")).toBe("POST");
+
+    const req = new Request("http://test.local/api/session", {
+      method: "POST",
+      headers: { Host: "test.local" },
+    });
+    const res = createSessionRoute(req);
+    expect(res).toBeInstanceOf(Response);
+    const body = await json(res) as {
+      code: string;
+      status: string;
+      connect_url: string;
+    };
+    track(body.code);
+    expect(isSessionCode(body.code)).toBe(true);
+    expect(body.status).toBe("waiting");
+    expect(body.connect_url).toBe(`http://test.local/c/${body.code}`);
   });
 
   test("returns 404 for unknown sessions", async () => {
@@ -156,6 +168,59 @@ describe("session API", () => {
       truncated: true,
     }));
     expect(await json(await first)).toEqual({ output: "ok", exit_code: 0, truncated: true });
+  });
+
+  test("rejects invalid command timeouts before sending them to the bridge", async () => {
+    const code = create("141414141414");
+    const ws = wsStub();
+    handleJoin(ws as never, {
+      type: "join",
+      session: code,
+      role: "agent",
+      meta: { host: "test", os: "linux", arch: "x64", user: "test" },
+    });
+
+    for (const timeout of [-1, 0, 3601]) {
+      const res = await commandRoute(routeReq(
+        `http://test.local/api/session/${code}/run`,
+        { code },
+        {
+          method: "POST",
+          body: JSON.stringify({ cmd: "pwd", timeout }),
+        },
+      ));
+      expect(res.status).toBe(400);
+      expect(await json(res)).toEqual({
+        error: "Invalid timeout: expected 1-3600 seconds",
+      });
+    }
+    expect(ws.sent.join("\n")).not.toContain('"type":"command"');
+  });
+
+  test("rejects command POST bodies over 64KB before sending them to the bridge", async () => {
+    const code = create("151515151515");
+    const ws = wsStub();
+    handleJoin(ws as never, {
+      type: "join",
+      session: code,
+      role: "agent",
+      meta: { host: "test", os: "linux", arch: "x64", user: "test" },
+    });
+
+    const res = await commandRoute(routeReq(
+      `http://test.local/api/session/${code}/run`,
+      { code },
+      {
+        method: "POST",
+        body: JSON.stringify({ cmd: "x".repeat(64 * 1024) }),
+      },
+    ));
+
+    expect(res.status).toBe(413);
+    expect(await json(res)).toEqual({
+      error: "Request body must be 65536 bytes or smaller",
+    });
+    expect(ws.sent.join("\n")).not.toContain('"type":"command"');
   });
 
   test("renders prompt as non-interactive one-shot command guidance", () => {
@@ -280,7 +345,7 @@ beforeAll(async () => {
   });
 
   await waitFor(async () => {
-    const res = await fetch(`${baseUrl}/api/sessions`);
+    const res = await fetch(`${baseUrl}/`);
     return res.ok;
   }, "server startup");
 });

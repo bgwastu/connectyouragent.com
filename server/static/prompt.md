@@ -25,7 +25,7 @@ For multi-line scripts, complex quoting, pipes, JSON, or special characters, sen
 
 Run one command at a time; wait for a response before sending the next.
 
-Default timeout is 30s. Override with `{"timeout": N}`. Output is truncated at 131072 bytes; pipe through `head`, `tail`, or filters proactively. stdout and stderr are merged in `output`; response JSON includes `exit_code` for checking command success and `truncated` for detecting capped output.
+Default timeout is 30s. Override with `{"timeout": N}` where N is 1-3600 seconds. POST bodies over 64KB are rejected. Output is truncated at 131072 bytes; pipe through `head`, `tail`, or filters proactively. stdout and stderr are merged in `output`; response JSON includes `exit_code` for checking command success and `truncated` for detecting capped output.
 
 ### curl (always preferred)
 
