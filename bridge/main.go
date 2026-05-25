@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -20,6 +21,11 @@ import (
 )
 
 const maxOutputBytes = 128 * 1024
+
+const (
+	reconnectBaseDelay = 1 * time.Second
+	reconnectMaxDelay  = 30 * time.Second
+)
 
 var sessionCodePattern = regexp.MustCompile(`^[0-9a-f]{12}$`)
 
@@ -49,46 +55,42 @@ func main() {
 		fatal("Usage: cya-bridge <session code>")
 	}
 
-	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second}
-	conn, resp, err := dialer.Dial(wsURL, http.Header{})
-	if err != nil {
-		if resp != nil {
-			_, _ = io.Copy(io.Discard, resp.Body)
-			_ = resp.Body.Close()
-		}
-		fatal(err.Error())
-	}
-
-	bridge := &wsConn{conn: conn}
-	dot := ansiCyan + "●" + ansiReset
-	printLine(dot, " ", ansiBold, code, ansiReset, "  —  Ctrl+C to disconnect")
-
-	if !bridge.sendJSON(map[string]any{
-		"type":    "join",
-		"session": code,
-		"role":    "agent",
-		"meta": map[string]any{
-			"host":     hostnameSafe(),
-			"os":       joinOS(),
-			"arch":     joinArch(),
-			"user":     safeUser(),
-			"cwd":      cwd(),
-			"shell":    shellName(),
-			"elevated": isElevated(),
-		},
-	}) {
-		fatal("websocket send failed")
-	}
-
+	quit := make(chan struct{})
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sig
-		bridge.close()
-		os.Exit(0)
+		close(quit)
 	}()
 
-	readCommands(bridge, dot)
+	delay := reconnectBaseDelay
+
+	for {
+		select {
+		case <-quit:
+			printLine("")
+			return
+		default:
+		}
+
+		_, reconnect := dialAndRun(wsURL, code, quit)
+		if !reconnect {
+			return
+		}
+
+		printLine(ansiDim, "⚠ Connection lost, reconnecting in ", fmt.Sprintf("%.0fs", delay.Seconds()), "...", ansiReset)
+
+		select {
+		case <-quit:
+			return
+		case <-time.After(delay):
+		}
+
+		delay *= 2
+		if delay > reconnectMaxDelay {
+			delay = reconnectMaxDelay
+		}
+	}
 }
 
 func fatal(msg string) {
@@ -215,7 +217,7 @@ func (w *wsConn) close() {
 	_ = w.conn.Close()
 }
 
-func readCommands(wsc *wsConn, dot string) {
+func readCommands(wsc *wsConn, dot string) bool {
 	defer func() {
 		printLine("\n", dot, " Connection closed.", ansiReset)
 		wsc.close()
@@ -224,7 +226,12 @@ func readCommands(wsc *wsConn, dot string) {
 	for {
 		_, data, err := wsc.conn.ReadMessage()
 		if err != nil {
-			return
+			// Normal WebSocket close = intentional (bye, signal, or server close)
+			if _, ok := err.(*websocket.CloseError); ok {
+				return false
+			}
+			// Network error or unexpected drop → should reconnect
+			return true
 		}
 		var head struct {
 			Type string `json:"type"`
@@ -264,9 +271,58 @@ func readCommands(wsc *wsConn, dot string) {
 			})
 		case "bye":
 			wsc.close()
-			return
+			return false
 		}
 	}
+}
+
+func dialAndRun(wsURL, code string, quit <-chan struct{}) (string, bool) {
+	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second}
+	conn, resp, err := dialer.Dial(wsURL, http.Header{})
+	if err != nil {
+		if resp != nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+		select {
+		case <-quit:
+			return "", false
+		default:
+		}
+		printLine(ansiDim, "⚠ Dial failed: ", err.Error(), ansiReset)
+		return "", true
+	}
+
+	bridge := &wsConn{conn: conn}
+	dot := ansiCyan + "●" + ansiReset
+	printLine(dot, " ", ansiBold, code, ansiReset, "  —  Ctrl+C to disconnect")
+
+	if !bridge.sendJSON(map[string]any{
+		"type":    "join",
+		"session": code,
+		"role":    "agent",
+		"meta": map[string]any{
+			"host":     hostnameSafe(),
+			"os":       joinOS(),
+			"arch":     joinArch(),
+			"user":     safeUser(),
+			"cwd":      cwd(),
+			"shell":    shellName(),
+			"elevated": isElevated(),
+		},
+	}) {
+		select {
+		case <-quit:
+			return "", false
+		default:
+		}
+		printLine(dot, " ", ansiRed, "Join failed, reconnecting...", ansiReset)
+		bridge.close()
+		return "", true
+	}
+
+	reconnect := readCommands(bridge, dot)
+	return dot, reconnect
 }
 
 func runOneShot(cmdLine string) (output string, status int, truncated bool) {
