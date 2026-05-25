@@ -150,15 +150,29 @@ func safeUser() string {
 func isElevated() bool {
 	if runtime.GOOS == "windows" {
 		u, err := osuser.Current()
-		if err == nil && strings.EqualFold(u.Username, "Administrator") {
-			return true
+		currentUser := ""
+		if err == nil {
+			currentUser = u.Username
 		}
-		return strings.EqualFold(os.Getenv("USERNAME"), "Administrator")
+		return isWindowsAdministrator(currentUser, os.Getenv("USERNAME"))
 	}
 	if os.Getenv("SUDO_UID") != "" {
 		return true
 	}
 	return syscall.Geteuid() == 0
+}
+
+func isWindowsAdministrator(currentUser, envUser string) bool {
+	return windowsUsernameLeaf(currentUser) == "administrator" ||
+		windowsUsernameLeaf(envUser) == "administrator"
+}
+
+func windowsUsernameLeaf(value string) string {
+	value = strings.TrimSpace(value)
+	if idx := strings.LastIndexAny(value, `\/`); idx >= 0 {
+		value = value[idx+1:]
+	}
+	return strings.ToLower(value)
 }
 
 func hostnameSafe() string {

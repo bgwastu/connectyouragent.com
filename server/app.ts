@@ -10,7 +10,7 @@ function env(key: string, fallback?: string): string {
 export const PORT = parseInt(env("PORT", "8765"), 10);
 export const HOST = env("HOST", "0.0.0.0");
 const SESSION_IDLE_TIMEOUT = parseInt(env("SESSION_IDLE_TIMEOUT", "300"), 10);
-const MAX_COMMAND_BODY_BYTES = 64 * 1024;
+const MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024;
 const MIN_COMMAND_TIMEOUT_SECONDS = 1;
 const MAX_COMMAND_TIMEOUT_SECONDS = 60 * 60;
 
@@ -414,18 +414,18 @@ async function getCommand(
 
 class PayloadTooLargeError extends Error {
   constructor() {
-    super(`Request body must be ${MAX_COMMAND_BODY_BYTES} bytes or smaller`);
+    super("Request body too large");
   }
 }
 
 async function readJsonBody(req: Request): Promise<unknown> {
   const contentLength = Number(req.headers.get("Content-Length") || "0");
-  if (contentLength > MAX_COMMAND_BODY_BYTES) {
+  if (contentLength > MAX_REQUEST_BODY_BYTES) {
     throw new PayloadTooLargeError();
   }
 
   const raw = await req.text();
-  if (new TextEncoder().encode(raw).byteLength > MAX_COMMAND_BODY_BYTES) {
+  if (new TextEncoder().encode(raw).byteLength > MAX_REQUEST_BODY_BYTES) {
     throw new PayloadTooLargeError();
   }
   return JSON.parse(raw);

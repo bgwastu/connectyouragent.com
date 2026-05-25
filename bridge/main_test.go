@@ -77,6 +77,27 @@ func TestShellMetadataHelpers(t *testing.T) {
 	}
 }
 
+func TestWindowsAdminUsernameDetection(t *testing.T) {
+	cases := []struct {
+		name        string
+		currentUser string
+		envUser     string
+		want        bool
+	}{
+		{name: "plain administrator", currentUser: "Administrator", want: true},
+		{name: "domain administrator", currentUser: `WINBOX\Administrator`, want: true},
+		{name: "env administrator fallback", envUser: "Administrator", want: true},
+		{name: "normal user", currentUser: `WINBOX\bagas`, envUser: "bagas", want: false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isWindowsAdministrator(tt.currentUser, tt.envUser); got != tt.want {
+				t.Fatalf("isWindowsAdministrator() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestOneShotArgs(t *testing.T) {
 	name, args := oneShotArgs("echo ok")
 	if runtime.GOOS == "windows" {
