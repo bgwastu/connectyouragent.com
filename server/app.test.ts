@@ -197,7 +197,7 @@ describe("session API", () => {
     expect(ws.sent.join("\n")).not.toContain('"type":"command"');
   });
 
-  test("rejects command POST bodies over 64KB before sending them to the bridge", async () => {
+  test("accepts command POST bodies up to 10MB and rejects larger bodies", async () => {
     const code = create("151515151515");
     const ws = wsStub();
     handleJoin(ws as never, {
@@ -207,23 +207,42 @@ describe("session API", () => {
       meta: { host: "test", os: "linux", arch: "x64", user: "test" },
     });
 
-    const res = await commandRoute(routeReq(
+    const justUnderLimit = "x".repeat((10 * 1024 * 1024) - 64);
+    const pending = commandRoute(routeReq(
       `http://test.local/api/session/${code}/run`,
       { code },
       {
         method: "POST",
-        body: JSON.stringify({ cmd: "x".repeat(64 * 1024) }),
+        body: JSON.stringify({ cmd: justUnderLimit }),
+      },
+    ));
+    await Bun.sleep(0);
+    const sent = ws.sent
+      .map((message) => JSON.parse(message) as { id?: string; type: string; cmd?: string })
+      .find((message) => message.type === "command");
+    expect(sent?.cmd).toBe(justUnderLimit);
+    handleAgentMessage(ws as never, JSON.stringify({
+      type: "command_result",
+      id: sent!.id,
+      output: "ok",
+      exit_code: 0,
+    }));
+    expect((await pending).status).toBe(200);
+
+    const oversized = await commandRoute(routeReq(
+      `http://test.local/api/session/${code}/run`,
+      { code },
+      {
+        method: "POST",
+        body: JSON.stringify({ cmd: "x".repeat(10 * 1024 * 1024) }),
       },
     ));
 
-    expect(res.status).toBe(413);
-    expect(await json(res)).toEqual({
-      error: "Request body must be 65536 bytes or smaller",
-    });
-    expect(ws.sent.join("\n")).not.toContain('"type":"command"');
+    expect(oversized.status).toBe(413);
+    expect(await json(oversized)).toEqual({ error: "Request body too large" });
   });
 
-  test("renders prompt as non-interactive one-shot command guidance", () => {
+  test("renders prompt without request payload size guidance", () => {
     const session = createSession(track("222222222222"));
     const prompt = buildPrompt(
       toSessionResponse(session, "http://test.local"),
@@ -233,6 +252,34 @@ describe("session API", () => {
     expect(prompt).toContain("non-interactive shell command access");
     expect(prompt).toContain("cmd_b64");
     expect(prompt).toContain("http://test.local/api/session/222222222222/run?cmd=");
+    expect(prompt).not.toContain("POST bodies over");
+    expect(prompt).not.toContain("10MB");
+    expect(prompt).not.toContain("64KB");
+  });
+
+  test("shows elevated Windows administrator metadata in prompt", () => {
+    const session = createSession(track("232323232323"));
+    const ws = wsStub();
+    handleJoin(ws as never, {
+      type: "join",
+      session: session.code,
+      role: "agent",
+      meta: {
+        host: "winbox",
+        os: "win32",
+        arch: "x64",
+        user: "WINBOX\\Administrator",
+        cwd: "C:\\Users\\Administrator",
+        shell: "powershell.exe",
+        elevated: true,
+      },
+    });
+
+    const body = toSessionResponse(session, "http://test.local");
+    expect(body.meta.elevated).toBe(true);
+    const prompt = buildPrompt(body, "http://test.local");
+    expect(prompt).toContain("**Elevated:** yes");
+    expect(prompt).toContain("WINBOX\\Administrator@winbox");
   });
 });
 
