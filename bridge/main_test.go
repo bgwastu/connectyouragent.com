@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -133,10 +134,9 @@ func TestReadCommandsExecutesCommandAndSendsResult(t *testing.T) {
 	client, server := websocketPair(t)
 	defer server.Close()
 
-	done := make(chan struct{})
+	resultCh := make(chan bool, 1)
 	go func() {
-		readCommands(&wsConn{conn: client}, "")
-		close(done)
+		resultCh <- readCommands(&wsConn{conn: client}, "")
 	}()
 
 	cmd := `printf ws-ok`
@@ -173,7 +173,10 @@ func TestReadCommandsExecutesCommandAndSendsResult(t *testing.T) {
 
 	_ = server.WriteJSON(map[string]any{"type": "bye"})
 	select {
-	case <-done:
+	case reconnect := <-resultCh:
+		if reconnect {
+			t.Fatalf("expected readCommands to return false after bye, got true")
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("readCommands did not exit after bye")
 	}
@@ -183,10 +186,9 @@ func TestReadCommandsIgnoresMalformedMessages(t *testing.T) {
 	client, server := websocketPair(t)
 	defer server.Close()
 
-	done := make(chan struct{})
+	resultCh := make(chan bool, 1)
 	go func() {
-		readCommands(&wsConn{conn: client}, "")
-		close(done)
+		resultCh <- readCommands(&wsConn{conn: client}, "")
 	}()
 
 	if err := server.WriteMessage(websocket.TextMessage, []byte(`not json`)); err != nil {
@@ -203,9 +205,37 @@ func TestReadCommandsIgnoresMalformedMessages(t *testing.T) {
 	_ = server.SetReadDeadline(time.Time{})
 	_ = server.WriteJSON(map[string]any{"type": "bye"})
 	select {
-	case <-done:
+	case reconnect := <-resultCh:
+		if reconnect {
+			t.Fatalf("expected readCommands to return false after bye, got true")
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("readCommands did not exit after bye")
+	}
+}
+
+func TestReadCommandsReturnsTrueOnUnexpectedDisconnect(t *testing.T) {
+	client, server := websocketPair(t)
+	defer server.Close()
+
+	resultCh := make(chan bool, 1)
+	go func() {
+		resultCh <- readCommands(&wsConn{conn: client}, "")
+	}()
+
+	// Close the raw TCP connection to simulate a network drop
+	// (no websocket close frame sent)
+	if err := client.NetConn().(*net.TCPConn).Close(); err != nil {
+		t.Fatalf("close raw TCP: %v", err)
+	}
+
+	select {
+	case reconnect := <-resultCh:
+		if !reconnect {
+			t.Fatalf("expected readCommands to return true on unexpected disconnect, got false")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("readCommands did not exit after unexpected disconnect")
 	}
 }
 
