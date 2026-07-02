@@ -271,7 +271,18 @@
         $("expiry").textContent = "Expires in " + min + ":" + rem;
       }
       function copyText(id, button, label) {
-        navigator.clipboard.writeText($(id).textContent).catch(function () {});
+        var text = $(id).textContent;
+        navigator.clipboard.writeText(text).catch(function () {
+          // Fallback for older browsers / insecure contexts
+          var ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+        });
         var old = button.textContent;
         button.textContent = label;
         button.disabled = true;
