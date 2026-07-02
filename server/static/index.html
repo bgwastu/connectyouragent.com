@@ -257,6 +257,13 @@
         });
         $("connect-tip").innerHTML = TIPS[TAB];
       }
+      function activeCommandId() {
+        return TAB === "win"
+          ? "cmd-win"
+          : TAB === "router"
+            ? "cmd-router"
+            : "cmd-unix";
+      }
       function isExpired(s) {
         return s.expired || Date.now() >= Date.parse(s.expires_at);
       }
