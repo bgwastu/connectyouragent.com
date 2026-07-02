@@ -10,7 +10,6 @@ function env(key: string, fallback?: string): string {
 export const PORT = parseInt(env("PORT", "8765"), 10);
 export const HOST = env("HOST", "0.0.0.0");
 const SESSION_IDLE_TIMEOUT = parseInt(env("SESSION_IDLE_TIMEOUT", "300"), 10);
-const SESSION_TTL = parseInt(env("SESSION_TTL", "600"), 10);
 const HEARTBEAT_INTERVAL_SEC = parseInt(env("HEARTBEAT_INTERVAL", "25"), 10);
 const MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024;
 const MIN_COMMAND_TIMEOUT_SECONDS = 1;
@@ -53,42 +52,19 @@ interface CommandResult {
   truncated: boolean;
 }
 
-interface FileReadResult {
-  path: string;
-  data: string;
-  encoding: string;
-  size: number;
-}
-
 type PendingCommand = {
   resolve: (value: CommandResult) => void;
   reject: (error: Error) => void;
   timer: Timer;
 };
 
-type PendingFileOp = {
-  resolve: (value: any) => void;
-  reject: (error: Error) => void;
-  timer: Timer;
-};
-
-interface StoredFile {
-  name: string;
-  data: Uint8Array;
-  contentType: string;
-  uploadedAt: number;
-}
-
 interface Session {
   code: string;
   meta?: AgentMeta;
   createdAt: number;
   lastActivity: number;
-  expiresAt: number;
   agent: ServerWebSocket<unknown> | null;
   pendingHttp: Map<string, PendingCommand>;
-  pendingFileRead: Map<string, PendingFileOp>;
-  files: Map<string, StoredFile>;
 }
 
 type ProtocolMsg =
@@ -103,21 +79,7 @@ type ProtocolMsg =
   | { type: "error"; message: string }
   | { type: "bye"; reason?: string }
   | { type: "ping" }
-  | { type: "pong" }
-  | {
-      type: "file_read_result";
-      id: string;
-      path: string;
-      data: string;
-      encoding: string;
-      size: number;
-    }
-  | {
-      type: "file_write_result";
-      id: string;
-      path: string;
-      bytes_written: number;
-    };
+  | { type: "pong" };
 
 type RouteRequest = Request & { params: Record<string, string | undefined> };
 
@@ -131,19 +93,15 @@ export function generateCode(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 }
 
-export function createSession(code: string, ttlSec?: number): Session {
+export function createSession(code: string): Session {
   idleSweep();
   const now = Date.now();
-  const ttl = (ttlSec ?? SESSION_TTL) * 1000;
   const session: Session = {
     code,
     createdAt: now,
     lastActivity: now,
-    expiresAt: now + ttl,
     agent: null,
     pendingHttp: new Map(),
-    pendingFileRead: new Map(),
-    files: new Map(),
   };
   sessions.set(code, session);
   return session;
@@ -162,13 +120,6 @@ export function closeSession(code: string): void {
     pending.reject(new Error("Session closed"));
   }
   session.pendingHttp.clear();
-  if (session.pendingFileRead) {
-    for (const pending of session.pendingFileRead.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error("Session closed"));
-    }
-    session.pendingFileRead.clear();
-  }
   session.agent?.close();
   sessions.delete(code);
 }
@@ -186,12 +137,6 @@ export const routes = {
   "/api/session/:code/run": {
     GET: commandRoute,
     POST: commandRoute,
-  },
-  "/api/session/:code/upload": {
-    POST: uploadRoute,
-  },
-  "/api/session/:code/download": {
-    GET: downloadRoute,
   },
   "/api/session/:code/prompt.md": { GET: apiPromptRoute },
   "/c/:code": connectRoute,
@@ -237,79 +182,6 @@ export function commandRoute(req: RouteRequest): Promise<Response> {
   const session = getSession(code);
   if (!session) return Promise.resolve(notFound());
   return handleCommand(req, new URL(req.url), session);
-}
-
-export async function uploadRoute(req: RouteRequest): Promise<Response> {
-  const code = routeCode(req);
-  if (!code) return notFound();
-  if (req.method !== "POST") return methodNotAllowed(["POST"]);
-  const session = getSession(code);
-  if (!session) return notFound();
-  if (Date.now() >= session.expiresAt) return json({ error: "Session expired" }, 410);
-  if (!session.agent) return json({ error: "Agent not connected" }, 409);
-
-  try {
-    const formData = await req.formData();
-    const fileField = formData.get("file");
-    if (!fileField || !(fileField instanceof File)) {
-      return json({ error: "Missing file field in multipart form" }, 400);
-    }
-
-    const fileId = crypto.randomUUID();
-    const buffer = Buffer.from(await fileField.arrayBuffer());
-    session.files.set(fileId, {
-      name: fileField.name,
-      data: new Uint8Array(buffer),
-      contentType: fileField.type || "application/octet-stream",
-      uploadedAt: Date.now(),
-    });
-
-    return json({
-      ok: true,
-      file_id: fileId,
-      filename: fileField.name,
-      size: buffer.length,
-      contentType: fileField.type || "application/octet-stream",
-    });
-  } catch (error) {
-    return json(
-      { error: error instanceof Error ? error.message : "Upload failed" },
-      400,
-    );
-  }
-}
-
-export async function downloadRoute(req: RouteRequest): Promise<Response> {
-  const code = routeCode(req);
-  if (!code) return notFound();
-  const session = getSession(code);
-  if (!session) return notFound();
-  if (Date.now() >= session.expiresAt) return json({ error: "Session expired" }, 410);
-  if (!session.agent) return json({ error: "Agent not connected" }, 409);
-
-  const url = new URL(req.url);
-  const path = url.searchParams.get("path");
-  if (!path) {
-    return json({ error: "Missing ?path= query parameter" }, 400);
-  }
-
-  try {
-    const result = await executeFileRead(session, path);
-    const bytes = Buffer.from(result.data, "base64");
-    return new Response(bytes, {
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${encodeURIComponent(basename(result.path))}"`,
-        "Content-Length": String(result.size),
-        ...NO_CACHE,
-      },
-    });
-  } catch (error) {
-    return json(
-      { error: error instanceof Error ? error.message : "Download failed" },
-      500,
-    );
-  }
 }
 
 export function apiPromptRoute(req: RouteRequest): Response {
@@ -384,8 +256,8 @@ export function handleJoin(
   session.agent = ws;
   session.lastActivity = Date.now();
   ws.send(
-    JSON.stringify({ type: "output", data: `Joined session ${msg.session}\n` }),
-  );
+      JSON.stringify({ type: "output", data: `Joined session ${msg.session}\n` }),
+    );
 }
 
 export function handleAgentMessage(
@@ -393,32 +265,20 @@ export function handleAgentMessage(
   raw: string,
 ): void {
   const msg = parseMessage(raw);
-  if (!msg) return;
+  if (!msg || msg.type !== "command_result") return;
 
   for (const session of sessions.values()) {
     if (session.agent !== ws) continue;
-
-    if (msg.type === "command_result") {
-      const pending = session.pendingHttp.get(msg.id);
-      if (!pending) return;
-      clearTimeout(pending.timer);
-      session.pendingHttp.delete(msg.id);
-      pending.resolve({
-        output: msg.output,
-        exit_code: msg.exit_code,
-        truncated: msg.truncated === true,
-      });
-      return;
-    }
-
-    if (msg.type === "file_read_result" || msg.type === "file_write_result") {
-      const pending = session.pendingFileRead.get(msg.id);
-      if (!pending) return;
-      clearTimeout(pending.timer);
-      session.pendingFileRead.delete(msg.id);
-      pending.resolve(msg);
-      return;
-    }
+    const pending = session.pendingHttp.get(msg.id);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    session.pendingHttp.delete(msg.id);
+    pending.resolve({
+      output: msg.output,
+      exit_code: msg.exit_code,
+      truncated: msg.truncated === true,
+    });
+    return;
   }
 }
 
@@ -428,14 +288,6 @@ export function handleDisconnect(ws: ServerWebSocket<unknown>): void {
     session.agent = null;
     session.meta = undefined;
     session.lastActivity = Date.now();
-    // Reject pending file operations
-    if (session.pendingFileRead) {
-      for (const pending of session.pendingFileRead.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error("Agent disconnected"));
-      }
-      session.pendingFileRead.clear();
-    }
     return;
   }
 }
@@ -459,13 +311,7 @@ export async function requestHandler(
 
 export function startServer() {
   // Periodic cleanup every 30s
-  const cleanupTimer = setInterval(() => {
-    idleSweep();
-    const expired = sweepExpiredSessions();
-    if (expired.length) {
-      console.log(`Cleaned up ${expired.length} expired sessions: ${expired.join(", ")}`);
-    }
-  }, 30_000);
+  setInterval(() => idleSweep(), 30_000);
 
   const server = Bun.serve({
     hostname: HOST,
@@ -483,8 +329,13 @@ export function startServer() {
         if (!msg) return;
         if (msg.type === "join") handleJoin(ws, msg);
         else if (msg.type === "pong") {
-          // Bridge responded to our ping — update activity
-          touchSessionByAgent(ws);
+          // Bridge is alive — update lastActivity
+          for (const session of sessions.values()) {
+            if (session.agent === ws) {
+              session.lastActivity = Date.now();
+              return;
+            }
+          }
         } else handleAgentMessage(ws, text);
       },
       close(ws: ServerWebSocket<unknown>) {
@@ -509,23 +360,11 @@ export function startServer() {
   return server;
 }
 
-function touchSessionByAgent(ws: ServerWebSocket<unknown>): void {
-  for (const session of sessions.values()) {
-    if (session.agent === ws) {
-      session.lastActivity = Date.now();
-      return;
-    }
-  }
-}
-
 async function handleCommand(
   req: Request,
   url: URL,
   session: Session,
 ): Promise<Response> {
-  if (Date.now() >= session.expiresAt) {
-    return json({ error: "Session expired" }, 410);
-  }
   if (!session.agent) return json({ error: "Agent not connected" }, 409);
 
   let parsed: { cmd: string; timeout?: number } | null;
@@ -685,55 +524,6 @@ function executeHttpCommand(
   });
 }
 
-function executeFileRead(
-  session: Session,
-  path: string,
-  timeoutMs = 30_000,
-): Promise<FileReadResult> {
-  if (!session.agent) return Promise.reject(new Error("Agent not connected"));
-
-  const id = crypto.randomUUID();
-
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      session.pendingFileRead.delete(id);
-      reject(new Error(`File read timed out after ${Math.round(timeoutMs / 1000)}s`));
-    }, timeoutMs);
-
-    session.pendingFileRead.set(id, { resolve, reject, timer });
-    session.agent!.send(JSON.stringify({ type: "file_read", id, path, encoding: "base64" }));
-    session.lastActivity = Date.now();
-  });
-}
-
-function executeFileWrite(
-  session: Session,
-  path: string,
-  dataBase64: string,
-  timeoutSec = 30,
-): Promise<{ bytes_written: number }> {
-  if (!session.agent) return Promise.reject(new Error("Agent not connected"));
-
-  const id = crypto.randomUUID();
-  const timeoutMs = timeoutSec * 1000;
-
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      session.pendingFileRead.delete(id);
-      reject(new Error(`File write timed out after ${Math.round(timeoutMs / 1000)}s`));
-    }, timeoutMs);
-
-    session.pendingFileRead.set(id, { resolve, reject, timer });
-    session.agent!.send(JSON.stringify({ type: "file_write", id, path, data: dataBase64, encoding: "base64" }));
-    session.lastActivity = Date.now();
-  });
-}
-
-function basename(p: string): string {
-  const normalized = p.replace(/\\/g, "/");
-  return normalized.split("/").filter(Boolean).pop() || p;
-}
-
 function createUniqueSessionCode(): string {
   const code = generateCode();
   if (sessions.has(code)) return createUniqueSessionCode();
@@ -749,7 +539,6 @@ export function toSessionResponse(session: Session, baseUrl?: string) {
   return {
     code: session.code,
     status: sessionStatus(session),
-    expired: Date.now() >= session.expiresAt,
     meta: {
       host: meta?.host,
       os: meta?.os,
@@ -760,7 +549,6 @@ export function toSessionResponse(session: Session, baseUrl?: string) {
       elevated: meta?.elevated,
     },
     created_at: new Date(session.createdAt).toISOString(),
-    expires_at: new Date(session.expiresAt).toISOString(),
     connect_url: baseUrl
       ? `${baseUrl}/c/${session.code}`
       : `/c/${session.code}`,
@@ -852,18 +640,6 @@ function cleanup(idleSeconds: number): string[] {
   for (const session of sessions.values()) {
     const idle = (now - session.lastActivity) / 1000;
     if (!session.agent && idle > idleSeconds) {
-      closeSession(session.code);
-      closed.push(session.code);
-    }
-  }
-  return closed;
-}
-
-function sweepExpiredSessions(): string[] {
-  const now = Date.now();
-  const closed = [];
-  for (const session of sessions.values()) {
-    if (now >= session.expiresAt) {
       closeSession(session.code);
       closed.push(session.code);
     }

@@ -9,9 +9,7 @@ import {
   connectWindowsRoute,
   createSession,
   createSessionRoute,
-  downloadRoute,
   generateCode,
-  getSession,
   handleJoin,
   handleAgentMessage,
   homeRoute,
@@ -20,7 +18,6 @@ import {
   routes,
   sessionInfoRoute,
   toSessionResponse,
-  uploadRoute,
 } from "./app.ts";
 
 const createdCodes: string[] = [];
@@ -375,103 +372,6 @@ describe("websocket relay", () => {
     expect(first.closed).toBe(false);
     expect(second.closed).toBe(true);
     expect(second.sent.join("\n")).toContain("Agent already connected");
-  });
-});
-
-describe("session expiry", () => {
-  test("rejects commands on expired session", async () => {
-    const code = create("a1a1a1a1a1a1");
-    // Manually expire the session
-    const session = getSession(code)!;
-    session.expiresAt = Date.now() - 1;
-    const ws = wsStub();
-    handleJoin(ws as never, {
-      type: "join",
-      session: code,
-      role: "agent",
-      meta: { host: "test", os: "linux", arch: "x64", user: "test" },
-    });
-    const req = routeReq(`http://test.local/api/session/${code}/run?cmd=pwd`, { code });
-    const res = await commandRoute(req);
-    expect(res.status).toBe(410);
-    expect(await json(res)).toEqual({ error: "Session expired" });
-  });
-
-  test("returns expired flag in session info", async () => {
-    const code = create("b2b2b2b2b2b2");
-    const session = getSession(code)!;
-    session.expiresAt = Date.now() - 1;
-    const res = sessionInfoRoute(routeReq(`http://test.local/api/session/${code}`, { code }));
-    const body = await json(res) as any;
-    expect(body.expired).toBe(true);
-  });
-});
-
-describe("file upload/download", () => {
-  test("rejects upload when agent not connected", async () => {
-    const code = create("c3c3c3c3c3c3");
-    const formData = new FormData();
-    formData.append("file", new Blob(["test content"]), "test.txt");
-    const req = routeReq(`http://test.local/api/session/${code}/upload`, { code }, {
-      method: "POST",
-      body: formData,
-    });
-    const res = await uploadRoute(req);
-    expect(res.status).toBe(409);
-    expect(await json(res)).toEqual({ error: "Agent not connected" });
-  });
-
-  test("accepts file upload and stores in session", async () => {
-    const code = create("d4d4d4d4d4d4");
-    const ws = wsStub();
-    handleJoin(ws as never, {
-      type: "join",
-      session: code,
-      role: "agent",
-      meta: { host: "test", os: "linux", arch: "x64", user: "test" },
-    });
-    const formData = new FormData();
-    formData.append("file", new Blob(["hello world"]), "hello.txt");
-    const req = routeReq(`http://test.local/api/session/${code}/upload`, { code }, {
-      method: "POST",
-      body: formData,
-    });
-    const res = await uploadRoute(req);
-    expect(res.status).toBe(200);
-    const body = await json(res) as { ok: boolean; file_id: string; filename: string; size: number };
-    expect(body.ok).toBe(true);
-    expect(body.filename).toBe("hello.txt");
-    expect(body.size).toBe(11);
-    // File should be stored in session
-    const session = getSession(code)!;
-    expect(session.files.has(body.file_id)).toBe(true);
-    const stored = session.files.get(body.file_id)!;
-    expect(stored.name).toBe("hello.txt");
-  });
-
-  test("rejects download without path parameter", async () => {
-    const code = create("e5e5e5e5e5e5");
-    const ws = wsStub();
-    handleJoin(ws as never, {
-      type: "join",
-      session: code,
-      role: "agent",
-      meta: { host: "test", os: "linux", arch: "x64", user: "test" },
-    });
-    const req = routeReq(`http://test.local/api/session/${code}/download`, { code });
-    const res = await downloadRoute(req);
-    expect(res.status).toBe(400);
-    expect(await json(res)).toEqual({ error: "Missing ?path= query parameter" });
-  });
-});
-
-describe("session response includes expiry fields", () => {
-  test("toSessionResponse includes expires_at and expired", () => {
-    const session = createSession(create("f6f6f6f6f6f6"));
-    const resp = toSessionResponse(session, "http://test.local");
-    expect(resp.expires_at).toBeString();
-    expect(resp.expired).toBe(false);
-    expect(Date.parse(resp.expires_at)).toBeGreaterThan(Date.now());
   });
 });
 

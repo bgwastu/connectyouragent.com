@@ -206,7 +206,6 @@
           <pre id="short-prompt" class="card wrap"></pre>
           <button id="copy-prompt" type="button">Copy Prompt</button>
         </div>
-        <div id="expiry" class="muted small"></div>
       </section>
     </main>
 
@@ -264,19 +263,6 @@
             ? "cmd-router"
             : "cmd-unix";
       }
-      function isExpired(s) {
-        return s.expired || Date.now() >= Date.parse(s.expires_at);
-      }
-      function updateExpiry(s) {
-        if (isExpired(s)) {
-          $("expiry").textContent = "Expired";
-          return;
-        }
-        var sec = Math.max(0, Math.ceil((Date.parse(s.expires_at) - Date.now()) / 1000));
-        var min = String(Math.floor(sec / 60)).padStart(2, "0");
-        var rem = String(sec % 60).padStart(2, "0");
-        $("expiry").textContent = "Expires in " + min + ":" + rem;
-      }
       function copyText(id, button, label) {
         var text = $(id).textContent;
         navigator.clipboard.writeText(text).catch(function () {
@@ -329,7 +315,6 @@
         if (!res.ok) return;
         var s = await res.json();
         s.status === "active" ? showActive(s) : showWaiting(s);
-        updateExpiry(s);
       }
       async function main() {
         if (!CODE) {
