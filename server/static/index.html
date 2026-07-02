@@ -257,22 +257,18 @@
         });
         $("connect-tip").innerHTML = TIPS[TAB];
       }
-      function activeCommandId() {
-        return TAB === "win"
-          ? "cmd-win"
-          : TAB === "router"
-            ? "cmd-router"
-            : "cmd-unix";
-      }
-      function expiresAt(s) {
-        return Date.parse(s.created_at) + 5 * 60 * 1000;
+      function isExpired(s) {
+        return s.expired || Date.now() >= Date.parse(s.expires_at);
       }
       function updateExpiry(s) {
-        var sec = Math.max(0, Math.ceil((expiresAt(s) - Date.now()) / 1000));
+        if (isExpired(s)) {
+          $("expiry").textContent = "Expired";
+          return;
+        }
+        var sec = Math.max(0, Math.ceil((Date.parse(s.expires_at) - Date.now()) / 1000));
         var min = String(Math.floor(sec / 60)).padStart(2, "0");
         var rem = String(sec % 60).padStart(2, "0");
-        $("expiry").textContent =
-          sec > 0 ? "Expires in " + min + ":" + rem : "Expired";
+        $("expiry").textContent = "Expires in " + min + ":" + rem;
       }
       async function copyText(id, button, label) {
         await navigator.clipboard.writeText($(id).textContent);
@@ -315,7 +311,17 @@
         if (res.status === 404) return location.replace("/");
         if (!res.ok) return;
         var s = await res.json();
+        if (isExpired(s)) {
+          $("waiting").hidden = true;
+          $("active").hidden = true;
+          $("expiry").textContent = "Expired";
+          return;
+        }
         s.status === "active" ? showActive(s) : showWaiting(s);
+      }
+      function disconnectSession() {
+        // Use sendBeacon for reliable delivery during tab close
+        navigator.sendBeacon(BASE + "/api/session/" + CODE + "/disconnect");
       }
       async function main() {
         if (!CODE) {
@@ -351,6 +357,14 @@
           await fetch(BASE + "/api/session/" + CODE + "/disconnect");
           location.replace("/");
         };
+        // Disconnect when tab is closed or browser navigates away
+        window.addEventListener("beforeunload", disconnectSession);
+        // Also disconnect when tab becomes hidden (e.g. switching tabs)
+        document.addEventListener("visibilitychange", function () {
+          if (document.visibilityState === "hidden") {
+            disconnectSession();
+          }
+        });
         selectTab(TAB);
         await poll();
         setInterval(poll, 1000);

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -306,4 +308,224 @@ func TestSendJSONWritesTextMessage(t *testing.T) {
 	if got["type"] != "ping" {
 		t.Fatalf("unexpected payload: %q", payload)
 	}
+}
+
+func TestReadFile(t *testing.T) {
+	tmp := t.TempDir()
+	path := tmp + "/test.txt"
+	content := "hello world"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	data, size, err := readFile(path)
+	if err != nil {
+		t.Fatalf("readFile failed: %v", err)
+	}
+	if size != int64(len(content)) {
+		t.Fatalf("expected size %d, got %d", len(content), size)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		t.Fatalf("decode base64: %v", err)
+	}
+	if string(decoded) != content {
+		t.Fatalf("expected %q, got %q", content, string(decoded))
+	}
+}
+
+func TestReadFileNonexistent(t *testing.T) {
+	_, _, err := readFile("/nonexistent/path")
+	if err == nil {
+		t.Fatalf("expected error for nonexistent file")
+	}
+}
+
+func TestWriteFileBase64(t *testing.T) {
+	tmp := t.TempDir()
+	path := tmp + "/output.txt"
+	content := "hello from bridge"
+	encoded := base64.StdEncoding.EncodeToString([]byte(content))
+
+	bytesWritten, err := writeFile(path, encoded, "base64")
+	if err != nil {
+		t.Fatalf("writeFile failed: %v", err)
+	}
+	if bytesWritten != len(content) {
+		t.Fatalf("expected %d bytes written, got %d", len(content), bytesWritten)
+	}
+
+	read, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read written file: %v", err)
+	}
+	if string(read) != content {
+		t.Fatalf("expected %q, got %q", content, string(read))
+	}
+}
+
+func TestWriteFileBase64url(t *testing.T) {
+	tmp := t.TempDir()
+	path := tmp + "/output.txt"
+	content := "hello with base64url"
+	encoded := base64.URLEncoding.EncodeToString([]byte(content))
+
+	bytesWritten, err := writeFile(path, encoded, "base64")
+	if err != nil {
+		t.Fatalf("writeFile with base64url failed: %v", err)
+	}
+	if bytesWritten != len(content) {
+		t.Fatalf("expected %d bytes written, got %d", len(content), bytesWritten)
+	}
+
+	read, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read written file: %v", err)
+	}
+	if string(read) != content {
+		t.Fatalf("expected %q, got %q", content, string(read))
+	}
+}
+
+func TestWriteFileInvalidBase64(t *testing.T) {
+	tmp := t.TempDir()
+	path := tmp + "/output.txt"
+	_, err := writeFile(path, "!!!not-base64!!!", "base64")
+	if err == nil {
+		t.Fatalf("expected error for invalid base64")
+	}
+}
+
+func TestHandleFileReadSendsResult(t *testing.T) {
+	client, server := websocketPair(t)
+	defer server.Close()
+
+	tmp := t.TempDir()
+	path := tmp + "/test.txt"
+	content := "file read test"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	wsc := &wsConn{conn: client}
+	go handleFileRead(wsc, "file-1", path)
+
+	var result struct {
+		Type     string `json:"type"`
+		ID       string `json:"id"`
+		Path     string `json:"path"`
+		Data     string `json:"data"`
+		Size     int64  `json:"size"`
+		Encoding string `json:"encoding"`
+	}
+	if err := server.ReadJSON(&result); err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	if result.Type != "file_read_result" || result.ID != "file-1" || result.Path != path {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if result.Size != int64(len(content)) {
+		t.Fatalf("expected size %d, got %d", len(content), result.Size)
+	}
+	decoded, _ := base64.StdEncoding.DecodeString(result.Data)
+	if string(decoded) != content {
+		t.Fatalf("expected content %q, got %q", content, string(decoded))
+	}
+}
+
+func TestReadCommandsHandlesFileRead(t *testing.T) {
+	client, server := websocketPair(t)
+	defer server.Close()
+
+	tmp := t.TempDir()
+	path := tmp + "/cmd-test.txt"
+	content := "read via command"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	resultCh := make(chan bool, 1)
+	go func() {
+		resultCh <- readCommands(&wsConn{conn: client}, "")
+	}()
+
+	if err := server.WriteJSON(map[string]any{
+		"type": "file_read",
+		"id":   "fr-1",
+		"path": path,
+	}); err != nil {
+		t.Fatalf("write file_read: %v", err)
+	}
+
+	var result struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+		Path string `json:"path"`
+		Data string `json:"data"`
+		Size int64  `json:"size"`
+	}
+	if err := server.ReadJSON(&result); err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	if result.Type != "file_read_result" || result.ID != "fr-1" {
+		t.Fatalf("unexpected type: %+v", result)
+	}
+
+	// Clean up by sending bye
+	_ = server.WriteJSON(map[string]any{"type": "bye"})
+	<-resultCh
+}
+
+func TestReadCommandsHandlesFileWrite(t *testing.T) {
+	client, server := websocketPair(t)
+	defer server.Close()
+
+	tmp := t.TempDir()
+	path := tmp + "/write-test.txt"
+	content := "written via command"
+	encoded := base64.StdEncoding.EncodeToString([]byte(content))
+
+	resultCh := make(chan bool, 1)
+	go func() {
+		resultCh <- readCommands(&wsConn{conn: client}, "")
+	}()
+
+	if err := server.WriteJSON(map[string]any{
+		"type":     "file_write",
+		"id":       "fw-1",
+		"path":     path,
+		"data":     encoded,
+		"encoding": "base64",
+	}); err != nil {
+		t.Fatalf("write file_write: %v", err)
+	}
+
+	var result struct {
+		Type         string `json:"type"`
+		ID           string `json:"id"`
+		Path         string `json:"path"`
+		BytesWritten int    `json:"bytes_written"`
+	}
+	if err := server.ReadJSON(&result); err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	if result.Type != "file_write_result" || result.ID != "fw-1" {
+		t.Fatalf("unexpected type: %+v", result)
+	}
+	if result.BytesWritten != len(content) {
+		t.Fatalf("expected %d bytes, got %d", len(content), result.BytesWritten)
+	}
+
+	// Verify content was written
+	read, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read written file: %v", err)
+	}
+	if string(read) != content {
+		t.Fatalf("expected %q, got %q", content, string(read))
+	}
+
+	// Clean up
+	_ = server.WriteJSON(map[string]any{"type": "bye"})
+	<-resultCh
 }

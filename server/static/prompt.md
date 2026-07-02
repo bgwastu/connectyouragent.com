@@ -48,6 +48,22 @@ Use web_fetch / read_web_page only when your environment cannot run outbound com
 {{base_url}}/api/session/{{code}}/run?cmd_b64=ZWNobyBoZWxsbw==
 ```
 
+## File transfer
+
+Upload files to the target machine via HTTP multipart, then send a command to write them:
+
+```
+# Upload a file (stores in memory, returns a file_id)
+curl -s -F "file=@./local_file.txt" "{{base_url}}/api/session/{{code}}/upload"
+```
+
+Download files from the target machine to your environment:
+
+```
+# Read a remote file and stream it back as a download
+curl -s -o local_copy.txt "{{base_url}}/api/session/{{code}}/download?path=/home/user/remote_file.txt"
+```
+
 ## Safety
 
 Be transparent about what you are doing. Avoid commands that consume excessive memory or CPU; the target machine may be resource-constrained.
