@@ -270,8 +270,8 @@
         var rem = String(sec % 60).padStart(2, "0");
         $("expiry").textContent = "Expires in " + min + ":" + rem;
       }
-      async function copyText(id, button, label) {
-        await navigator.clipboard.writeText($(id).textContent);
+      function copyText(id, button, label) {
+        navigator.clipboard.writeText($(id).textContent).catch(function () {});
         var old = button.textContent;
         button.textContent = label;
         button.disabled = true;
@@ -313,10 +313,6 @@
         s.status === "active" ? showActive(s) : showWaiting(s);
         updateExpiry(s);
       }
-      function disconnectSession() {
-        // Use sendBeacon for reliable delivery during tab close
-        navigator.sendBeacon(BASE + "/api/session/" + CODE + "/disconnect");
-      }
       async function main() {
         if (!CODE) {
           $("create-session").onclick = async function () {
@@ -351,8 +347,6 @@
           await fetch(BASE + "/api/session/" + CODE + "/disconnect");
           location.replace("/");
         };
-        // Disconnect when tab is closed or browser navigates away
-        window.addEventListener("beforeunload", disconnectSession);
         selectTab(TAB);
         await poll();
         setInterval(poll, 1000);
