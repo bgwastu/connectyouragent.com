@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -216,6 +215,13 @@ func windowsUsernameLeaf(value string) string {
 	return strings.ToLower(value)
 }
 
+func stripScheme(raw string) string {
+	for _, prefix := range []string{"wss://", "ws://", "https://", "http://"} {
+		raw = strings.TrimPrefix(raw, prefix)
+	}
+	return raw
+}
+
 func hostnameSafe() string {
 	h, err := os.Hostname()
 	if err != nil {
@@ -325,71 +331,75 @@ func readCommands(wsc *wsConn, dot string) bool {
 	}
 }
 
-// dialWS connects to a WebSocket URL, falling back to 8.8.8.8 for DNS
-// if the system resolver fails (common on Android/Termux where /etc/resolv.conf
+// resolveWithFallback resolves hostname, falling back to 8.8.8.8:53 if the
+// system resolver fails (common on Android/Termux where /etc/resolv.conf
 // points to a non-existent localhost DNS server).
-func dialWS(wsURL string) (*websocket.Conn, *http.Response, error) {
-	u, err := url.Parse(wsURL)
-	if err != nil {
-		return nil, nil, err
+func resolveWithFallback(hostname string) ([]net.IP, error) {
+	// System DNS first
+	ips, err := net.DefaultResolver.LookupHost(context.Background(), hostname)
+	if err == nil && len(ips) > 0 {
+		return parseIPs(ips)
 	}
 
-	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second}
-	conn, resp, err := dialer.Dial(wsURL, http.Header{})
-	if err == nil {
-		return conn, resp, nil
+	// Fallback: resolve via 8.8.8.8 directly
+	alt := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return net.DialTimeout("udp", "8.8.8.8:53", 5*time.Second)
+		},
 	}
-
-	// Check if it's a DNS error by trying to resolve with a fallback DNS
-	hostname := u.Hostname()
-	port := u.Port()
-	if port == "" {
-		if u.Scheme == "wss" {
-			port = "443"
-		} else {
-			port = "80"
-		}
+	ips, err = alt.LookupHost(context.Background(), hostname)
+	if err != nil || len(ips) == 0 {
+		return nil, fmt.Errorf("resolve %s: system DNS failed, 8.8.8.8 fallback also failed: %v", hostname, err)
 	}
+	return parseIPs(ips)
+}
 
-	// Try to resolve using the system DNS first (may have failed)
-	ips, lookupErr := net.DefaultResolver.LookupHost(context.Background(), hostname)
-	if lookupErr != nil {
-		// System DNS failed — try Google DNS (8.8.8.8) directly
-		altResolver := &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				d := net.Dialer{Timeout: 5 * time.Second}
-				return d.DialContext(ctx, "udp", "8.8.8.8:53")
-			},
-		}
-		ips, lookupErr = altResolver.LookupHost(context.Background(), hostname)
-		if lookupErr != nil || len(ips) == 0 {
-			return conn, resp, fmt.Errorf("%w (DNS: also tried 8.8.8.8: %v)", err, lookupErr)
+func parseIPs(addrs []string) ([]net.IP, error) {
+	ips := make([]net.IP, 0, len(addrs))
+	for _, a := range addrs {
+		ip := net.ParseIP(a)
+		if ip != nil {
+			ips = append(ips, ip)
 		}
 	}
-
-	// Try each resolved IP with the WebSocket dialer
-	for _, ip := range ips {
-		directURL := wsURL
-		if strings.HasPrefix(wsURL, "ws://") {
-			directURL = fmt.Sprintf("ws://%s:%s", ip, port)
-		} else if strings.HasPrefix(wsURL, "wss://") {
-			directURL = fmt.Sprintf("wss://%s:%s", ip, port)
-		}
-
-		headers := http.Header{}
-		headers.Set("Host", hostname)
-		conn, resp, err = dialer.Dial(directURL, headers)
-		if err == nil {
-			return conn, resp, nil
-		}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no valid IPs found")
 	}
-
-	return conn, resp, err
+	return ips, nil
 }
 
 func dialAndRun(wsURL, code, connectURL string, quit <-chan struct{}) (string, bool) {
-	conn, resp, err := dialWS(wsURL)
+	// Extract hostname from ws:// or wss:// URL for DNS fallback
+	hostname := stripScheme(wsURL)
+	if idx := strings.IndexByte(hostname, '/'); idx >= 0 {
+		hostname = hostname[:idx]
+	}
+	if h, _, err := net.SplitHostPort(hostname); err == nil {
+		hostname = h
+	}
+
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 15 * time.Second,
+		NetDial: func(network, addr string) (net.Conn, error) {
+			_, port, _ := net.SplitHostPort(addr)
+			ips, err := resolveWithFallback(hostname)
+			if err != nil {
+				return nil, err
+			}
+			var lastErr error
+			for _, ip := range ips {
+				target := net.JoinHostPort(ip.String(), port)
+				conn, err := net.DialTimeout(network, target, 15*time.Second)
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			return nil, lastErr
+		},
+	}
+	conn, resp, err := dialer.Dial(wsURL, http.Header{})
 	if err != nil {
 		if resp != nil {
 			_, _ = io.Copy(io.Discard, resp.Body)
