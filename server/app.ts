@@ -58,6 +58,12 @@ type PendingCommand = {
   timer: Timer;
 };
 
+type PendingFileRead = {
+  resolve: (value: { path: string; data: string; size: number }) => void;
+  reject: (error: Error) => void;
+  timer: Timer;
+};
+
 interface Session {
   code: string;
   meta?: AgentMeta;
@@ -65,6 +71,7 @@ interface Session {
   lastActivity: number;
   agent: ServerWebSocket<unknown> | null;
   pendingHttp: Map<string, PendingCommand>;
+  pendingFileRead: Map<string, PendingFileRead>;
 }
 
 type ProtocolMsg =
@@ -79,7 +86,15 @@ type ProtocolMsg =
   | { type: "error"; message: string }
   | { type: "bye"; reason?: string }
   | { type: "ping" }
-  | { type: "pong" };
+  | { type: "pong" }
+  | {
+      type: "file_read_result";
+      id: string;
+      path: string;
+      data: string;
+      size: number;
+      error?: string;
+    };
 
 type RouteRequest = Request & { params: Record<string, string | undefined> };
 
@@ -102,6 +117,7 @@ export function createSession(code: string): Session {
     lastActivity: now,
     agent: null,
     pendingHttp: new Map(),
+    pendingFileRead: new Map(),
   };
   sessions.set(code, session);
   return session;
@@ -120,6 +136,11 @@ export function closeSession(code: string): void {
     pending.reject(new Error("Session closed"));
   }
   session.pendingHttp.clear();
+  for (const pending of session.pendingFileRead.values()) {
+    clearTimeout(pending.timer);
+    pending.reject(new Error("Session closed"));
+  }
+  session.pendingFileRead.clear();
   session.agent?.close();
   sessions.delete(code);
 }
@@ -137,6 +158,9 @@ export const routes = {
   "/api/session/:code/run": {
     GET: commandRoute,
     POST: commandRoute,
+  },
+  "/api/session/:code/download": {
+    GET: downloadRoute,
   },
   "/api/session/:code/prompt.md": { GET: apiPromptRoute },
   "/c/:code": connectRoute,
@@ -182,6 +206,35 @@ export function commandRoute(req: RouteRequest): Promise<Response> {
   const session = getSession(code);
   if (!session) return Promise.resolve(notFound());
   return handleCommand(req, new URL(req.url), session);
+}
+
+export async function downloadRoute(req: RouteRequest): Promise<Response> {
+  const code = routeCode(req);
+  if (!code) return notFound();
+  const session = getSession(code);
+  if (!session) return notFound();
+  if (!session.agent) return json({ error: "Agent not connected" }, 409);
+
+  const url = new URL(req.url);
+  const path = url.searchParams.get("path");
+  if (!path) return json({ error: "Missing ?path= query parameter" }, 400);
+
+  try {
+    const result = await executeFileRead(session, path);
+    const bytes = Buffer.from(result.data, "base64");
+    const filename = path.split("/").filter(Boolean).pop() || "download";
+    return new Response(bytes, {
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+        "Content-Length": String(result.size),
+        ...NO_CACHE,
+      },
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Download failed";
+    return json({ error: msg }, 500);
+  }
 }
 
 export function apiPromptRoute(req: RouteRequest): Response {
@@ -265,20 +318,36 @@ export function handleAgentMessage(
   raw: string,
 ): void {
   const msg = parseMessage(raw);
-  if (!msg || msg.type !== "command_result") return;
+  if (!msg) return;
 
   for (const session of sessions.values()) {
     if (session.agent !== ws) continue;
-    const pending = session.pendingHttp.get(msg.id);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    session.pendingHttp.delete(msg.id);
-    pending.resolve({
-      output: msg.output,
-      exit_code: msg.exit_code,
-      truncated: msg.truncated === true,
-    });
-    return;
+
+    if (msg.type === "command_result") {
+      const pending = session.pendingHttp.get(msg.id);
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      session.pendingHttp.delete(msg.id);
+      pending.resolve({
+        output: msg.output,
+        exit_code: msg.exit_code,
+        truncated: msg.truncated === true,
+      });
+      return;
+    }
+
+    if (msg.type === "file_read_result" && msg.id) {
+      const pending = session.pendingFileRead.get(msg.id);
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      session.pendingFileRead.delete(msg.id);
+      if (msg.error) {
+        pending.reject(new Error(msg.error));
+      } else {
+        pending.resolve({ path: msg.path, data: msg.data, size: msg.size });
+      }
+      return;
+    }
   }
 }
 
@@ -288,6 +357,11 @@ export function handleDisconnect(ws: ServerWebSocket<unknown>): void {
     session.agent = null;
     session.meta = undefined;
     session.lastActivity = Date.now();
+    for (const pending of session.pendingFileRead.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error("Agent disconnected"));
+    }
+    session.pendingFileRead.clear();
     return;
   }
 }
@@ -520,6 +594,28 @@ function executeHttpCommand(
 
     session.pendingHttp.set(id, { resolve, reject, timer });
     session.agent!.send(JSON.stringify({ type: "command", cmd, id }));
+    session.lastActivity = Date.now();
+  });
+}
+
+function executeFileRead(
+  session: Session,
+  path: string,
+  timeoutSec = 30,
+): Promise<{ path: string; data: string; size: number }> {
+  if (!session.agent) return Promise.reject(new Error("Agent not connected"));
+
+  const id = crypto.randomUUID();
+  const timeoutMs = timeoutSec * 1000;
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      session.pendingFileRead.delete(id);
+      reject(new Error(`File read timed out after ${Math.round(timeoutMs / 1000)}s`));
+    }, timeoutMs);
+
+    session.pendingFileRead.set(id, { resolve, reject, timer });
+    session.agent!.send(JSON.stringify({ type: "file_read", id, path }));
     session.lastActivity = Date.now();
   });
 }

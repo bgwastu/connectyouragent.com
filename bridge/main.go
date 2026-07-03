@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,6 +29,7 @@ const (
 	reconnectBaseDelay = 1 * time.Second
 	reconnectMaxDelay  = 30 * time.Second
 	pongWait           = 60 * time.Second
+	maxFileSize        = 50 * 1024 * 1024
 )
 
 var sessionCodePattern = regexp.MustCompile(`^[0-9a-f]{12}$`)
@@ -324,11 +326,78 @@ func readCommands(wsc *wsConn, dot string) bool {
 				"exit_code": code,
 				"truncated": truncated,
 			})
+		case "file_read":
+			var msg struct {
+				ID   string `json:"id"`
+				Path string `json:"path"`
+			}
+			_ = json.Unmarshal(data, &msg)
+			if msg.ID == "" {
+				continue
+			}
+			sendFile(wsc, msg.ID, msg.Path)
 		case "bye":
 			wsc.close()
 			return false
 		}
 	}
+}
+
+func sendFile(wsc *wsConn, id, path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		wsc.sendJSON(map[string]any{
+			"type":  "file_read_result",
+			"id":    id,
+			"path":  path,
+			"error": err.Error(),
+		})
+		return
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		wsc.sendJSON(map[string]any{
+			"type":  "file_read_result",
+			"id":    id,
+			"path":  path,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	size := fi.Size()
+	if size > maxFileSize {
+		wsc.sendJSON(map[string]any{
+			"type":  "file_read_result",
+			"id":    id,
+			"path":  path,
+			"error": fmt.Sprintf("file too large: %d bytes (max %d)", size, maxFileSize),
+		})
+		return
+	}
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		wsc.sendJSON(map[string]any{
+			"type":  "file_read_result",
+			"id":    id,
+			"path":  path,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(data)
+	wsc.sendJSON(map[string]any{
+		"type":     "file_read_result",
+		"id":       id,
+		"path":     path,
+		"data":     encoded,
+		"size":     size,
+		"encoding": "base64",
+	})
 }
 
 // resolveWithFallback resolves hostname, falling back to 8.8.8.8:53 if the
