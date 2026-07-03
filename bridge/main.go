@@ -346,11 +346,11 @@ func dialAndRun(wsURL, code, connectURL string, quit <-chan struct{}) (string, b
 	printLine(dot, " ", connectURL, ansiReset)
 	printLine(dot, " ", ansiBold, code, ansiReset, "  —  Ctrl+C to disconnect")
 
-	// Set up heartbeat: expect pong within pongWait
+	// Set up heartbeat: reset read deadline on server ping, respond with pong
 	conn.SetReadDeadline(time.Now().Add(pongWait))
-	conn.SetPongHandler(func(string) error {
+	conn.SetPingHandler(func(appData string) error {
 		conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
+		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(10*time.Second))
 	})
 
 	if !bridge.sendJSON(map[string]any{
