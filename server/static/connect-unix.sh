@@ -61,4 +61,4 @@ else
   exit 1
 fi
 chmod +x "${TMPDIR}/${BIN_NAME}"
-BRIDGE_WS_URL="${BASE_URL/http/ws}/ws" "${TMPDIR}/${BIN_NAME}" "${CODE}"
+BRIDGE_WS_URL="${BASE_URL/http/ws}/ws" BRIDGE_CODE="${CODE}" "${TMPDIR}/${BIN_NAME}" "${CODE}"

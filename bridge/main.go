@@ -74,10 +74,10 @@ func main() {
 	if wsURL == "" {
 		fatal(`Missing env var: BRIDGE_WS_URL`)
 	}
-	if len(os.Args) < 2 {
-		fatal("Usage: cya-bridge <session code>")
-	}
 	code := os.Args[1]
+	if !sessionCodePattern.MatchString(code) {
+		code = os.Getenv("BRIDGE_CODE")
+	}
 	if !sessionCodePattern.MatchString(code) {
 		fatal("Usage: cya-bridge <session code>")
 	}
