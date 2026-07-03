@@ -33,14 +33,19 @@ build_one() {
   id="$(tolower "${goos}_${goarch}")"
   wanted "$id" || return 0
   echo "Building ${goos}/${goarch} -> ${out}"
+  pie=""
+  # Android/Termux requires PIE executables (ET_DYN / e_type=3).
+  # MIPS does not support PIE, skip it there.
+  [ "$goos" = "linux" ] && [ "$goarch" != "mips" ] && [ "$goarch" != "mipsle" ] && \
+    [ "$goarch" != "mips64" ] && [ "$goarch" != "mips64le" ] && pie="-buildmode=pie"
   (
     cd "$BRIDGE"
     if [ "$gomips" = "softfloat" ]; then
       CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch GOMIPS=softfloat \
-        go build -trimpath '-ldflags=-s -w' -o "$OUT/$out" .
+        go build -trimpath $pie '-ldflags=-s -w' -o "$OUT/$out" .
     else
       CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
-        go build -trimpath '-ldflags=-s -w' -o "$OUT/$out" .
+        go build -trimpath $pie '-ldflags=-s -w' -o "$OUT/$out" .
     fi
   )
 }
