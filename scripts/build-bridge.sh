@@ -34,10 +34,18 @@ build_one() {
   wanted "$id" || return 0
   echo "Building ${goos}/${goarch} -> ${out}"
   pie=""
-  # Android/Termux requires PIE executables (ET_DYN / e_type=3).
-  # MIPS does not support PIE, skip it there.
-  [ "$goos" = "linux" ] && [ "$goarch" != "mips" ] && [ "$goarch" != "mipsle" ] && \
-    [ "$goarch" != "mips64" ] && [ "$goarch" != "mips64le" ] && pie="-buildmode=pie"
+  # Android/Termux:
+  # 1. Requires PIE executables (ET_DYN / e_type=3). MIPS does not support PIE.
+  # 2. Bionic libc requires PT_TLS alignment >= 64. GOOS=linux produces align=8.
+  #    GOOS=android avoids this by omitting the TLS segment entirely.
+  # So for arm64 (the common Android architecture), build with GOOS=android.
+  if [ "$goarch" = "arm64" ] && [ "$goos" = "linux" ]; then
+    goos=android
+  fi
+  # PIE for all Linux/Android targets except MIPS (MIPS doesn't support it)
+  if [ "$goos" = "linux" ] || [ "$goos" = "android" ]; then
+    case "$goarch" in mips*|mips64*) ;; *) pie="-buildmode=pie" ;; esac
+  fi
   (
     cd "$BRIDGE"
     if [ "$gomips" = "softfloat" ]; then
