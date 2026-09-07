@@ -477,6 +477,13 @@ describe("full local server and bridge flow", () => {
       expect(timeoutResult.error).toContain("timed out");
     }
 
+    const sessionWithHistory = await getJson(`${baseUrl}/api/session/${session.code}`) as {
+      history: Array<{ cmd: string; exit_code: number; output: string }>;
+    };
+    expect(sessionWithHistory.history.length).toBeGreaterThanOrEqual(3);
+    expect(sessionWithHistory.history[0].cmd).toContain(marker);
+    expect(sessionWithHistory.history[0].exit_code).toBe(0);
+
     const disconnect = await postJson(
       `${baseUrl}/api/session/${session.code}/disconnect`,
       {},

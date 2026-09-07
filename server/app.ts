@@ -52,7 +52,18 @@ interface CommandResult {
   truncated: boolean;
 }
 
+export interface CommandHistoryEntry {
+  id: string;
+  cmd: string;
+  timestamp: number;
+  exit_code: number;
+  output: string;
+  truncated: boolean;
+}
+
 type PendingCommand = {
+  cmd: string;
+  timestamp: number;
   resolve: (value: CommandResult) => void;
   reject: (error: Error) => void;
   timer: Timer;
@@ -72,6 +83,7 @@ interface Session {
   agent: ServerWebSocket<unknown> | null;
   pendingHttp: Map<string, PendingCommand>;
   pendingFileRead: Map<string, PendingFileRead>;
+  history: CommandHistoryEntry[];
 }
 
 type ProtocolMsg =
@@ -118,6 +130,7 @@ export function createSession(code: string): Session {
     agent: null,
     pendingHttp: new Map(),
     pendingFileRead: new Map(),
+    history: [],
   };
   sessions.set(code, session);
   return session;
@@ -328,11 +341,23 @@ export function handleAgentMessage(
       if (!pending) return;
       clearTimeout(pending.timer);
       session.pendingHttp.delete(msg.id);
-      pending.resolve({
+      const res: CommandResult = {
         output: msg.output,
         exit_code: msg.exit_code,
         truncated: msg.truncated === true,
+      };
+      session.history.push({
+        id: msg.id,
+        cmd: pending.cmd,
+        timestamp: pending.timestamp,
+        exit_code: res.exit_code,
+        output: res.output,
+        truncated: res.truncated,
       });
+      if (session.history.length > 50) {
+        session.history.shift();
+      }
+      pending.resolve(res);
       return;
     }
 
@@ -592,7 +617,13 @@ function executeHttpCommand(
       );
     }, timeoutMs);
 
-    session.pendingHttp.set(id, { resolve, reject, timer });
+    session.pendingHttp.set(id, {
+      cmd,
+      timestamp: Date.now(),
+      resolve,
+      reject,
+      timer,
+    });
     session.agent!.send(JSON.stringify({ type: "command", cmd, id }));
     session.lastActivity = Date.now();
   });
@@ -644,6 +675,7 @@ export function toSessionResponse(session: Session, baseUrl?: string) {
       shell: meta?.shell,
       elevated: meta?.elevated,
     },
+    history: session.history,
     created_at: new Date(session.createdAt).toISOString(),
     connect_url: baseUrl
       ? `${baseUrl}/c/${session.code}`

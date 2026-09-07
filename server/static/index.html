@@ -3,208 +3,522 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
     <title>Connect Your Agent</title>
     <style>
+      :root {
+        --bg: #ffffff;
+        --card-bg: #fafafa;
+        --code-bg: #f4f4f5;
+        --text: #18181b;
+        --text-muted: #71717a;
+        --border: #e4e4e7;
+        --border-hover: #a1a1aa;
+        --accent: #18181b;
+        --accent-text: #ffffff;
+        --green: #16a34a;
+        --green-bg: #f0fdf4;
+        --green-border: #bbf7d0;
+        --danger: #dc2626;
+        --font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #09090b;
+          --card-bg: #121215;
+          --code-bg: #18181b;
+          --text: #f4f4f5;
+          --text-muted: #a1a1aa;
+          --border: #27272a;
+          --border-hover: #52525b;
+          --accent: #f4f4f5;
+          --accent-text: #09090b;
+          --green: #4ade80;
+          --green-bg: #052e16;
+          --green-border: #14532d;
+          --danger: #ef4444;
+        }
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
       body {
-        margin: 0;
-        background: #fff;
-        color: #111;
-        font:
-          14px/1.5 ui-monospace,
-          SFMono-Regular,
-          Menlo,
-          Consolas,
-          monospace;
-      }
-      main {
-        max-width: 640px;
-        margin: 36px auto;
-        padding: 0 18px;
-      }
-      a,
-      button {
-        color: inherit;
-        font: inherit;
-      }
-      button {
-        min-height: 32px;
-        cursor: pointer;
-      }
-      ul {
-        margin: 0;
-        padding-left: 20px;
-      }
-      [hidden] {
-        display: none !important;
-      }
-      .stack {
-        display: grid;
-        gap: 12px;
-      }
-      .row {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 13px;
+        line-height: 1.6;
+        padding: 40px 20px;
         display: flex;
-        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+
+      main {
+        width: 100%;
+        max-width: 620px;
+        display: flex;
+        flex-direction: column;
+        gap: 28px;
+      }
+
+      header {
+        display: flex;
         justify-content: space-between;
-        gap: 12px;
-      }
-      .github {
-        display: inline-flex;
         align-items: center;
-        gap: 6px;
-        text-decoration: none;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 16px;
       }
-      .github svg {
-        width: 14px;
-        height: 14px;
-      }
-      .bold {
+
+      .brand-title {
         font-weight: 700;
+        font-size: 15px;
+        text-decoration: none;
+        color: var(--text);
+        letter-spacing: -0.01em;
       }
-      .muted {
-        color: #666;
-      }
-      .small {
+
+      .source-link {
+        color: var(--text-muted);
+        text-decoration: none;
         font-size: 12px;
       }
-      .line {
-        margin-top: 4px;
-        padding-top: 12px;
-        border-top: 1px solid #eee;
+      .source-link:hover { color: var(--text); }
+
+      /* Buttons */
+      button, .btn {
+        font-family: inherit;
+        font-size: 13px;
+        padding: 8px 16px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--card-bg);
+        color: var(--text);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: border-color 0.15s, background-color 0.15s;
+        text-decoration: none;
       }
+      button:hover, .btn:hover { border-color: var(--border-hover); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      .btn-primary {
+        background: var(--accent);
+        color: var(--accent-text);
+        border-color: var(--accent);
+        font-weight: 600;
+      }
+      .btn-primary:hover {
+        opacity: 0.9;
+        border-color: var(--accent);
+      }
+
+      .btn-danger {
+        color: var(--danger);
+        background: transparent;
+        border: 1px solid transparent;
+        font-size: 12px;
+        padding: 6px 12px;
+        border-radius: 6px;
+      }
+      .btn-danger:hover {
+        background: var(--code-bg);
+        border-color: var(--border);
+      }
+
+      /* Home */
+      .home-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      .hero-intro h1 {
+        font-size: 21px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin-bottom: 8px;
+      }
+      .hero-intro p {
+        color: var(--text-muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .info-box {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .info-title {
+        font-weight: 600;
+        font-size: 13px;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .info-list {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        color: var(--text-muted);
+        font-size: 12px;
+      }
+      .info-list li {
+        color: var(--text-muted);
+      }
+      .info-list strong {
+        color: var(--text);
+      }
+
+      /* Tabs */
       .tabs {
         display: flex;
-        margin-bottom: 10px;
-        border-bottom: 1px solid #eee;
+        gap: 6px;
+        margin-bottom: 8px;
       }
-      .tab {
-        margin-bottom: -1px;
-        padding: 8px 12px;
+      .tab-btn {
+        background: transparent;
+        border: 1px solid transparent;
+        padding: 4px 10px;
+        font-size: 12px;
+        color: var(--text-muted);
+        border-radius: 4px;
+      }
+      .tab-btn[aria-selected="true"] {
+        color: var(--text);
+        background: var(--code-bg);
+        border-color: var(--border);
+        font-weight: 600;
+      }
+
+      /* Code Cards */
+      .code-card {
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      pre {
+        font-family: inherit;
+        font-size: 12px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        color: var(--text);
+      }
+
+      .code-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .hint {
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      /* Status Pill */
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        width: fit-content;
+      }
+      .status-pill.waiting {
+        background: var(--code-bg);
+        color: var(--text-muted);
+        border: 1px solid var(--border);
+      }
+      .status-pill.connected {
+        background: var(--green-bg);
+        color: var(--green);
+        border: 1px solid var(--green-border);
+        font-weight: 600;
+      }
+      .pulse-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .status-pill.waiting .pulse-dot {
+        animation: pulse 1.8s infinite ease-in-out;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 1; }
+      }
+
+      .connected-box {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .connected-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .meta-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 12px 14px;
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-size: 12px;
+      }
+      .meta-item {
+        color: var(--text-muted);
+      }
+      .meta-item span {
+        color: var(--text);
+      }
+
+      .next-step {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .next-step-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
+      }
+
+      /* History Section */
+      .history-section {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 4px;
+      }
+      .history-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .history-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .badge {
+        font-size: 11px;
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        padding: 2px 8px;
+        border-radius: 10px;
+        color: var(--text-muted);
+      }
+      .history-empty {
+        padding: 16px;
+        background: var(--card-bg);
+        border: 1px dashed var(--border);
+        border-radius: 6px;
+        color: var(--text-muted);
+        font-size: 12px;
+        text-align: center;
+      }
+      .history-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: 240px;
+        overflow-y: auto;
+        padding-right: 2px;
+      }
+      .history-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .history-cmd-box, .history-out-box {
+        display: flex;
+        flex-direction: column;
+      }
+      .history-cmd {
+        font-weight: 600;
+        font-size: 12px;
+        color: var(--text);
+        word-break: break-all;
+        white-space: pre-wrap;
+      }
+      .history-cmd.collapsed {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .history-output {
+        background: var(--code-bg);
+        padding: 8px 10px;
+        border-radius: 4px;
+        font-size: 11px;
+        color: var(--text-muted);
+        white-space: pre-wrap;
+        word-break: break-all;
+        margin: 0;
+      }
+      .history-output.collapsed {
+        max-height: 80px;
+        overflow: hidden;
+        mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+        -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+      }
+      .toggle-link {
         background: transparent;
         border: 0;
-        border-bottom: 2px solid transparent;
-        color: #666;
+        color: var(--text-muted);
+        font-size: 11px;
+        padding: 2px 0;
+        cursor: pointer;
+        text-decoration: underline;
+        width: fit-content;
+        margin-top: 4px;
+        font-family: inherit;
       }
-      .tab[aria-selected="true"] {
-        color: #111;
-        border-bottom-color: #111;
+      .toggle-link:hover {
+        color: var(--text);
       }
-      .card {
-        box-sizing: border-box;
-        max-width: 100%;
-        margin: 0;
-        padding: 12px;
-        background: #fafafa;
-        border: 1px solid #eee;
-        border-radius: 4px;
-        font: inherit;
-        user-select: text;
-        -webkit-user-select: text;
+
+      .footer-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 8px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
       }
-      .cmd {
-        white-space: pre;
-        overflow-x: auto;
-        overflow-y: hidden;
-        -webkit-overflow-scrolling: touch;
-        tab-size: 2;
-      }
-      .wrap {
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-      }
+
+      [hidden] { display: none !important; }
     </style>
   </head>
   <body>
     <main>
-      <section id="home" class="stack">
-        <div class="row bold">
-          <div>Connect Your Agent</div>
-          <a
-            class="github small"
-            href="https://github.com/bgwastu/cya"
-            target="_blank"
-            rel="noreferrer"
-            ><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">
-              <path
-                d="M8 0C3.58 0 0 3.67 0 8.2c0 3.62 2.29 6.69 5.47 7.78.4.08.55-.18.55-.4 0-.2-.01-.85-.01-1.55-2.01.38-2.53-.5-2.69-.96-.09-.24-.48-.96-.82-1.16-.28-.16-.68-.55-.01-.56.63-.01 1.08.59 1.23.84.72 1.24 1.87.89 2.33.68.07-.53.28-.89.51-1.09-1.78-.21-3.64-.91-3.64-4.03 0-.89.31-1.62.82-2.19-.08-.21-.36-1.04.08-2.16 0 0 .67-.22 2.2.84A7.48 7.48 0 0 1 8 3.96c.68 0 1.36.09 2 .28 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.95.08 2.16.51.57.82 1.3.82 2.19 0 3.13-1.87 3.82-3.65 4.03.29.26.54.76.54 1.53 0 1.1-.01 1.99-.01 2.27 0 .22.15.48.55.4A8.1 8.1 0 0 0 16 8.2C16 3.67 12.42 0 8 0Z"
-              /></svg
-            >Source Code</a
-          >
+      <header>
+        <a href="/" class="brand-title">Connect Your Agent</a>
+        <a href="https://github.com/bgwastu/cya" target="_blank" rel="noreferrer" class="source-link">GitHub</a>
+      </header>
+
+      <!-- HOME -->
+      <section id="home" class="home-stack">
+        <div class="hero-intro">
+          <h1>Connect Your Agent</h1>
+          <p>Give Claude Code, Codex, OpenClaw, or custom AI agents temporary, user-approved shell access to your machine without opening inbound ports or sharing SSH credentials.</p>
         </div>
-        <p class="muted" style="margin: 0">
-          Gives any AI agent temporary shell access to a machine. Create a
-          session, run one command, then paste the prompt into Claude Code,
-          Codex, OpenClaw, or any other agent.
-        </p>
-        <p class="muted" style="margin: 0">
-          Nothing is logged or stored - <u>sessions run in-memory only.</u>
-        </p>
-        <div class="line bold">Use Cases</div>
-        <ul>
-          <li>
-            Ask AI to check why your server is running out of disk space at 3am.
-          </li>
-          <li>Ask AI to set up a new dev machine while you keep working.</li>
-          <li>
-            Give AI temporary access to a throwaway machine, lab box, or
-            recovery environment.
-          </li>
-          <li>
-            Debug your home router without pasting screenshots into chats.
-          </li>
-        </ul>
-        <button id="create-session" type="button">Create Session</button>
-        <div class="muted small">
-          Supported: macOS, Windows x64, Linux, OpenWrt / MIPS routers.
+
+        <div>
+          <button id="create-session" class="btn-primary" type="button">Create Session</button>
+        </div>
+
+        <div class="info-box">
+          <div class="info-title">How It Works</div>
+          <ul class="info-list">
+            <li>1. Click <strong>Create Session</strong> to get an install command.</li>
+            <li>2. Run the command on the target machine to connect.</li>
+            <li>3. Paste the prompt into your AI agent (Claude Code, Codex, etc.).</li>
+          </ul>
+        </div>
+
+        <div class="info-box">
+          <div class="info-title">Privacy & Security</div>
+          <ul class="info-list">
+            <li><strong>100% In-Memory:</strong> Sessions, metadata, and commands exist strictly in volatile RAM. Nothing is ever saved to disk or a database.</li>
+            <li><strong>Zero Logging:</strong> No command history, outputs, or credentials are saved or tracked on server infrastructure.</li>
+            <li><strong>Ephemeral & Revocable:</strong> Disconnecting immediately closes the bridge and destroys the session. Sessions automatically self-destruct when idle.</li>
+          </ul>
         </div>
       </section>
 
-      <section id="session" class="stack" hidden>
-        <a href="/">Go to Home</a>
-        <div id="waiting" class="stack line">
-          <div>Run on the target machine:</div>
-          <div class="tabs" aria-label="Install command for your OS">
-            <button
-              class="tab"
-              id="tab-unix"
-              type="button"
-              aria-selected="true"
-            >
-              Linux / macOS
-            </button>
-            <button
-              class="tab"
-              id="tab-router"
-              type="button"
-              aria-selected="false"
-            >
-              Router (MIPS)
-            </button>
-            <button
-              class="tab"
-              id="tab-win"
-              type="button"
-              aria-selected="false"
-            >
-              Windows
-            </button>
+      <!-- SESSION -->
+      <section id="session" hidden>
+        <!-- WAITING VIEW -->
+        <div id="waiting" style="display: flex; flex-direction: column; gap: 20px;">
+          <div class="status-pill waiting">
+            <span class="pulse-dot"></span>
+            <span>Waiting for machine to connect...</span>
           </div>
-          <pre id="cmd-unix" class="card cmd"></pre>
-          <pre id="cmd-router" class="card cmd" hidden></pre>
-          <pre id="cmd-win" class="card cmd" hidden></pre>
-          <button id="copy-cmd" type="button">Copy</button>
-          <div id="connect-tip"></div>
-          <div class="muted">Waiting for connection...</div>
+
+          <div>
+            <div style="margin-bottom: 8px; font-weight: 600; font-size: 13px;">Run on the target machine</div>
+            <div class="tabs" role="tablist">
+              <button class="tab-btn" id="tab-unix" type="button" aria-selected="true">macOS / Linux</button>
+              <button class="tab-btn" id="tab-win" type="button" aria-selected="false">Windows</button>
+              <button class="tab-btn" id="tab-router" type="button" aria-selected="false">Router</button>
+            </div>
+
+            <div class="code-card">
+              <pre id="cmd-unix"></pre>
+              <pre id="cmd-win" hidden></pre>
+              <pre id="cmd-router" hidden></pre>
+              <div class="code-actions">
+                <span id="connect-tip" class="hint"></span>
+                <button id="copy-cmd" type="button">Copy Command</button>
+              </div>
+            </div>
+          </div>
         </div>
-        <div id="active" class="stack line" hidden>
-          <div id="connected-to" class="bold"></div>
-          <pre id="status" class="card wrap"></pre>
-          <button id="disconnect" type="button">Disconnect</button>
-          <div class="line">
-            Paste this into any AI coding agent (Claude Code, Codex, OpenClaw,
-            etc.) to start controlling your computer:
+
+        <!-- CONNECTED VIEW -->
+        <div id="connected" class="connected-box" hidden>
+          <div class="connected-header">
+            <div class="status-pill connected">
+              <span class="pulse-dot"></span>
+              <span id="connected-to">Connected</span>
+            </div>
+            <button id="disconnect" class="btn-danger" type="button">Disconnect</button>
           </div>
-          <pre id="short-prompt" class="card wrap"></pre>
-          <button id="copy-prompt" type="button">Copy Prompt</button>
+
+          <div class="meta-summary">
+            <div class="meta-item">OS: <span id="meta-os">-</span></div>
+            <div class="meta-item">Shell: <span id="meta-shell">-</span></div>
+            <div class="meta-item">CWD: <span id="meta-cwd">-</span></div>
+          </div>
+
+          <div class="next-step">
+            <div class="next-step-title">Paste this prompt into your agent:</div>
+            <div class="code-card">
+              <pre id="short-prompt"></pre>
+              <div class="code-actions">
+                <span class="hint">Claude Code, Codex, OpenClaw, etc.</span>
+                <button id="copy-prompt" class="btn-primary" type="button">Copy Prompt</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- COMMAND HISTORY -->
+          <div class="history-section">
+            <div class="history-header">
+              <span class="history-title">Command History</span>
+            </div>
+            <div id="history-empty" class="history-empty">
+              Waiting for agent to execute commands. Activity appears here in real time.
+            </div>
+            <div id="history-list" class="history-list" hidden></div>
+          </div>
         </div>
       </section>
     </main>
@@ -214,59 +528,47 @@
       var CODE = (location.pathname.match(/^\/c\/([0-9a-f]{12})/) || [])[1];
       var TAB = likelyWindows() ? "win" : "unix";
       var TIPS = {
-        unix: "<strong>Tip:</strong> Use <code>sudo bash</code> if you want the AI to operate as root.",
-        router:
-          "<strong>Tip:</strong> This code uses <code>wget</code>, which BusyBox/OpenWrt usually ships with; you don't need <code>curl</code>. Run as root on the router only if needed.",
-        win: "<strong>Tip:</strong> Use <strong>PowerShell</strong>; run as Administrator if you need admin access.",
+        unix: "Tip: Use sudo if your agent needs root permissions.",
+        win: "Tip: Run in PowerShell as Administrator for admin access.",
+        router: "Tip: Requires wget (default in BusyBox / OpenWrt)."
       };
-      function $(id) {
-        return document.getElementById(id);
-      }
+
+      function $(id) { return document.getElementById(id); }
       function setText(id, text) {
         var el = $(id);
-        if (el.textContent !== text) el.textContent = text;
+        if (el && el.textContent !== text) el.textContent = text;
+      }
+      function escapeHtml(str) {
+        return (str || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
       }
       function likelyWindows() {
-        var p =
-          (navigator.userAgentData && navigator.userAgentData.platform) ||
-          navigator.platform ||
-          "";
+        var p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
         return /win/i.test(p) || /Windows/i.test(navigator.userAgent || "");
       }
-      function promptUrl(code) {
-        return BASE + "/c/" + code + "/prompt.md";
-      }
-      function unixCmd(code) {
-        return "curl -fsSL " + BASE + "/c/" + code + " | bash";
-      }
-      function routerCmd(code) {
-        return "wget -qO- " + BASE + "/c/" + code + " | sh";
-      }
-      function winCmd(code) {
-        return "irm '" + BASE + "/c/" + code + "/windows.ps1' | iex";
-      }
+      function promptUrl(code) { return BASE + "/c/" + code + "/prompt.md"; }
+      function unixCmd(code) { return "curl -fsSL " + BASE + "/c/" + code + " | bash"; }
+      function routerCmd(code) { return "wget -qO- " + BASE + "/c/" + code + " | sh"; }
+      function winCmd(code) { return "irm '" + BASE + "/c/" + code + "/windows.ps1' | iex"; }
+
       function selectTab(which) {
         TAB = which;
-        ["unix", "router", "win"].forEach(function (name) {
-          $("tab-" + name).setAttribute(
-            "aria-selected",
-            name === TAB ? "true" : "false",
-          );
+        ["unix", "win", "router"].forEach(function(name) {
+          $("tab-" + name).setAttribute("aria-selected", name === TAB ? "true" : "false");
           $("cmd-" + name).hidden = name !== TAB;
         });
-        $("connect-tip").innerHTML = TIPS[TAB];
+        $("connect-tip").textContent = TIPS[TAB];
       }
+
       function activeCommandId() {
-        return TAB === "win"
-          ? "cmd-win"
-          : TAB === "router"
-            ? "cmd-router"
-            : "cmd-unix";
+        return TAB === "win" ? "cmd-win" : TAB === "router" ? "cmd-router" : "cmd-unix";
       }
-      function copyText(id, button, label) {
+
+      function copyText(id, button) {
         var text = $(id).textContent;
-        navigator.clipboard.writeText(text).catch(function () {
-          // Fallback for older browsers / insecure contexts
+        navigator.clipboard.writeText(text).catch(function() {
           var ta = document.createElement("textarea");
           ta.value = text;
           ta.style.position = "fixed";
@@ -276,88 +578,145 @@
           document.execCommand("copy");
           document.body.removeChild(ta);
         });
-        var old = button.textContent;
-        button.textContent = label;
+        var orig = button.textContent;
+        button.textContent = "Copied!";
         button.disabled = true;
-        setTimeout(function () {
-          button.textContent = old;
+        setTimeout(function() {
+          button.textContent = orig;
           button.disabled = false;
         }, 1200);
       }
+
+      var currentHistory = [];
+      var expandedHistory = {};
+
+      window.toggleHistory = function(key) {
+        expandedHistory[key] = !expandedHistory[key];
+        renderHistory(currentHistory, true);
+      };
+
+      function renderHistory(history, forceRerender) {
+        currentHistory = history || [];
+        var el = $("history-list");
+        if (currentHistory.length === 0) {
+          $("history-empty").hidden = false;
+          el.hidden = true;
+          return;
+        }
+        $("history-empty").hidden = true;
+        el.hidden = false;
+
+        var isAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 40;
+
+        var html = currentHistory.map(function(item, idx) {
+          var id = item.id || String(idx);
+          var cmdKey = id + "_cmd";
+          var outKey = id + "_out";
+          var cmd = item.cmd || "";
+          var out = item.output ? item.output.trim() : "";
+
+          var isCmdLong = cmd.length > 100 || cmd.indexOf("\n") !== -1;
+          var isCmdExp = !!expandedHistory[cmdKey];
+
+          var isOutLong = out.length > 250 || out.split("\n").length > 4;
+          var isOutExp = !!expandedHistory[outKey];
+
+          var cmdHtml = '<div class="history-cmd-box">' +
+            '<div class="history-cmd' + (isCmdLong && !isCmdExp ? " collapsed" : "") + '">$ ' + escapeHtml(cmd) + "</div>" +
+            (isCmdLong ? '<button type="button" class="toggle-link" onclick="toggleHistory(\'' + cmdKey + '\')">' + (isCmdExp ? "Show less" : "Show more") + "</button>" : "") +
+          "</div>";
+
+          var outHtml = out ? (
+            '<div class="history-out-box">' +
+              '<pre class="history-output' + (isOutLong && !isOutExp ? " collapsed" : "") + '">' + escapeHtml(out) + "</pre>" +
+              (isOutLong ? '<button type="button" class="toggle-link" onclick="toggleHistory(\'' + outKey + '\')">' + (isOutExp ? "Show less" : "Show more") + "</button>" : "") +
+            "</div>"
+          ) : "";
+
+          return '<div class="history-card">' + cmdHtml + outHtml + "</div>";
+        }).join("");
+
+        if (forceRerender || el.innerHTML !== html) {
+          el.innerHTML = html;
+          if (isAtBottom) {
+            el.scrollTop = el.scrollHeight;
+          }
+        }
+      }
+
       function showWaiting(s) {
         $("waiting").hidden = false;
-        $("active").hidden = true;
+        $("connected").hidden = true;
         setText("cmd-unix", unixCmd(s.code));
-        setText("cmd-router", routerCmd(s.code));
         setText("cmd-win", winCmd(s.code));
+        setText("cmd-router", routerCmd(s.code));
       }
+
       function showActive(s) {
         $("waiting").hidden = true;
-        $("active").hidden = false;
+        $("connected").hidden = false;
         var m = s.meta || {};
-        setText(
-          "connected-to",
-          "Connected to: " + (m.user || "?") + "@" + (m.host || "?"),
-        );
-        var lines = [];
-        if (m.os && m.arch) lines.push("OS: " + m.os + "/" + m.arch);
-        if (m.shell) lines.push("Current shell: " + m.shell);
-        if (m.cwd) lines.push("Current directory: " + m.cwd);
-        setText("status", lines.join("\n"));
-        setText(
-          "short-prompt",
-          "Follow this instruction: " + promptUrl(s.code),
-        );
+        setText("connected-to", "Connected to " + (m.user || "machine") + "@" + (m.host || "unknown"));
+        setText("meta-os", (m.os || "") + " (" + (m.arch || "") + ")");
+        setText("meta-shell", m.shell || "-");
+        setText("meta-cwd", m.cwd || "-");
+        setText("short-prompt", "Follow this instruction: " + promptUrl(s.code));
+        renderHistory(s.history);
       }
+
       async function poll() {
-        var res = await fetch(BASE + "/api/session/" + CODE);
-        if (res.status === 404) return location.replace("/");
-        if (!res.ok) return;
-        var s = await res.json();
-        s.status === "active" ? showActive(s) : showWaiting(s);
+        try {
+          var res = await fetch(BASE + "/api/session/" + CODE);
+          if (res.status === 404) return location.replace("/");
+          if (!res.ok) return;
+          var s = await res.json();
+          if (s.status === "active") showActive(s);
+          else showWaiting(s);
+        } catch (_) {}
       }
+
       async function main() {
         if (!CODE) {
-          $("create-session").onclick = async function () {
-            var b = this;
-            b.textContent = "Creating...";
-            b.disabled = true;
+          $("create-session").onclick = async function() {
+            this.textContent = "Creating...";
+            this.disabled = true;
             try {
               var r = await fetch(BASE + "/api/session", { method: "POST" });
               var s = await r.json();
               location.replace("/c/" + s.code);
             } catch (_) {
-              b.textContent = "Try Again";
-              b.disabled = false;
+              this.textContent = "Create Session";
+              this.disabled = false;
             }
           };
           return;
         }
+
         $("home").hidden = true;
         $("session").hidden = false;
-        ["unix", "router", "win"].forEach(function (name) {
-          $("tab-" + name).onclick = function () {
-            selectTab(name);
-          };
+
+        ["unix", "win", "router"].forEach(function(name) {
+          $("tab-" + name).onclick = function() { selectTab(name); };
         });
-        $("copy-cmd").onclick = function () {
-          copyText(activeCommandId(), this, "Copied");
-        };
-        $("copy-prompt").onclick = function () {
-          copyText("short-prompt", this, "Copied");
-        };
-        $("disconnect").onclick = async function () {
+
+        $("copy-cmd").onclick = function() { copyText(activeCommandId(), this); };
+        $("copy-prompt").onclick = function() { copyText("short-prompt", this); };
+        $("disconnect").onclick = async function() {
+          if (!confirm("Are you sure you want to disconnect? This will terminate the session and bridge connection immediately.")) {
+            return;
+          }
+          this.disabled = true;
+          this.textContent = "Disconnecting...";
           await fetch(BASE + "/api/session/" + CODE + "/disconnect");
           location.replace("/");
         };
+
         selectTab(TAB);
         await poll();
         setInterval(poll, 1000);
       }
-      main().catch(function () {
-        $("home").innerHTML =
-          '<div>Connect Your Agent</div><div class="muted">Failed. Refresh to retry.</div>';
-      });
+
+      main();
     </script>
   </body>
 </html>
