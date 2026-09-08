@@ -2,7 +2,7 @@
 
 CYA gives an AI agent temporary, user-approved command access to a machine.
 
-Start a session, run the displayed install command on the target machine, then paste the generated prompt into Claude Code, Codex, OpenClaw, or another agent. Sessions are in-memory only and commands run one at a time.
+Start a session, run the displayed install command on the target machine, then paste the generated prompt into Claude Code, Codex, OpenClaw, or another agent. Sessions are end-to-end encrypted (optional), in-memory only, and commands run one at a time.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ docker run --rm -p 8765:8765 cya
 4. Agents call `/api/session/:code/run` with `cmd`, `cmd_b64`, and optional `timeout`.
 5. The response includes merged stdout/stderr, `exit_code`, and `truncated`.
 
-Sessions are in-memory only. Nothing is persisted by the server.
+Sessions are end-to-end encrypted (optional, AES-128-GCM) and in-memory only. Nothing is persisted or readable by the server.
 
 ## Development
 
