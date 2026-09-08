@@ -17,7 +17,7 @@ Open `http://localhost:8765`, create a session, run the displayed command on the
 
 ```sh
 docker build -t cya .
-docker run --rm -p 8765:8765 -e BASE_URL=http://localhost:8765 cya
+docker run --rm -p 8765:8765 cya
 ```
 
 ## How It Works

@@ -775,10 +775,17 @@ function cleanup(idleSeconds: number): string[] {
   return closed;
 }
 
-function effectiveOrigin(req: Request): string {
-  const proto =
-    req.headers.get("X-Forwarded-Proto") === "https" ? "https" : "http";
-  const host = req.headers.get("Host") || "localhost";
+export function effectiveOrigin(req: Request): string {
+  const forwardedProto = req.headers.get("X-Forwarded-Proto");
+  const proto = forwardedProto
+    ? forwardedProto.split(",")[0].trim()
+    : req.url.startsWith("https://")
+      ? "https"
+      : "http";
+  const forwardedHost = req.headers.get("X-Forwarded-Host");
+  const host = forwardedHost
+    ? forwardedHost.split(",")[0].trim()
+    : req.headers.get("Host") || new URL(req.url).host || "localhost";
   return `${proto}://${host}`;
 }
 

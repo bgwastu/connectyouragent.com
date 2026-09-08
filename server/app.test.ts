@@ -9,6 +9,7 @@ import {
   connectWindowsRoute,
   createSession,
   createSessionRoute,
+  effectiveOrigin,
   generateCode,
   handleJoin,
   handleAgentMessage,
@@ -347,6 +348,28 @@ describe("page and installer routes", () => {
 
     expect(res?.headers.get("Content-Type")).toContain("text/markdown");
     expect(prompt).toContain("non-interactive shell command access");
+  });
+
+  test("effectiveOrigin extracts scheme and host without base url env", () => {
+    // Direct request
+    const directReq = new Request("http://localhost:8765/api/session");
+    expect(effectiveOrigin(directReq)).toBe("http://localhost:8765");
+
+    // HTTPS forwarded proto
+    const protoReq = new Request("http://localhost:8765/api/session", {
+      headers: { "X-Forwarded-Proto": "https", Host: "my-app.example.com" },
+    });
+    expect(effectiveOrigin(protoReq)).toBe("https://my-app.example.com");
+
+    // Reverse proxy with forwarded host and proto
+    const proxyReq = new Request("http://10.0.0.1:8765/api/session", {
+      headers: {
+        "X-Forwarded-Proto": "https, http",
+        "X-Forwarded-Host": "cya.internal.net, proxy.internal",
+        Host: "10.0.0.1:8765",
+      },
+    });
+    expect(effectiveOrigin(proxyReq)).toBe("https://cya.internal.net");
   });
 });
 
