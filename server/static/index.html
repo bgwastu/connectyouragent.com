@@ -572,24 +572,49 @@
       }
 
       function copyText(id, button) {
-        var text = $(id).textContent;
-        navigator.clipboard.writeText(text).catch(function() {
-          var ta = document.createElement("textarea");
-          ta.value = text;
-          ta.style.position = "fixed";
-          ta.style.opacity = "0";
-          document.body.appendChild(ta);
-          ta.select();
+        var el = $(id);
+        var text = el ? (el.textContent || "").trim() : "";
+        if (!text && CODE) {
+          if (id === "cmd-unix") text = unixCmd(CODE);
+          else if (id === "cmd-win") text = winCmd(CODE);
+          else if (id === "cmd-router") text = routerCmd(CODE);
+          else if (id === "short-prompt") text = "Follow this instruction: " + promptUrl(CODE);
+        }
+        if (!text) return;
+
+        function markCopied() {
+          var orig = button.textContent;
+          button.textContent = "Copied!";
+          button.disabled = true;
+          setTimeout(function() {
+            button.textContent = orig;
+            button.disabled = false;
+          }, 1200);
+        }
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(markCopied).catch(function() {
+            fallbackCopy(text);
+            markCopied();
+          });
+        } else {
+          fallbackCopy(text);
+          markCopied();
+        }
+      }
+
+      function fallbackCopy(text) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try {
           document.execCommand("copy");
-          document.body.removeChild(ta);
-        });
-        var orig = button.textContent;
-        button.textContent = "Copied!";
-        button.disabled = true;
-        setTimeout(function() {
-          button.textContent = orig;
-          button.disabled = false;
-        }, 1200);
+        } catch (_) {}
+        document.body.removeChild(ta);
       }
 
       var currentHistory = [];
@@ -649,12 +674,16 @@
         }
       }
 
+      function setCommandTexts(code) {
+        setText("cmd-unix", unixCmd(code));
+        setText("cmd-win", winCmd(code));
+        setText("cmd-router", routerCmd(code));
+      }
+
       function showWaiting(s) {
         $("waiting").hidden = false;
         $("connected").hidden = true;
-        setText("cmd-unix", unixCmd(s.code));
-        setText("cmd-win", winCmd(s.code));
-        setText("cmd-router", routerCmd(s.code));
+        setCommandTexts(s.code);
       }
 
       function showActive(s) {
@@ -717,6 +746,7 @@
         };
 
         selectTab(TAB);
+        setCommandTexts(CODE);
         await poll();
         setInterval(poll, 1000);
       }
