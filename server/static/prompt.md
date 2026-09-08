@@ -14,10 +14,10 @@ If your instruction URL contains a session key fragment (`#<key>`), communicatio
 
 ```sh
 # 1. Setup runner (run once):
-curl -fsSL "{{base_url}}/bin/cya-bridge-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')" -o /tmp/cya && chmod +x /tmp/cya
+curl -fsSL "{{base_url}}/bin/cya" -o /tmp/cya && chmod +x /tmp/cya
 
 # 2. Run encrypted commands:
-/tmp/cya run --url "{{base_url}}" --key "<KEY_FROM_URL_FRAGMENT>" "<command>"
+/tmp/cya run --url "{{base_url}}" --session "{{code}}" --key "<KEY_FROM_URL_FRAGMENT>" "<command>"
 ```
 
 If no key was present in your instruction URL, run commands via curl:

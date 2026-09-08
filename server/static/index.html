@@ -926,6 +926,13 @@
           setCommandTexts(CODE);
         }
 
+        var initialKey = HASH_KEY;
+        if (!initialKey && window.CYA_CRYPTO) {
+          // If no key was in hash upon landing on session page, generate one
+          var initialEntropy = window.CYA_CRYPTO.generateEntropy();
+          initialKey = window.CYA_CRYPTO.bytesToBase62(initialEntropy);
+        }
+
         $("session-enc-toggle").onchange = async function() {
           if (this.checked) {
             var entropy = window.CYA_CRYPTO ? window.CYA_CRYPTO.generateEntropy() : crypto.getRandomValues(new Uint8Array(16));
@@ -959,7 +966,7 @@
           }
         };
 
-        await applyKey(HASH_KEY);
+        await applyKey(initialKey);
 
         ["unix", "win", "router"].forEach(function(name) {
           $("tab-" + name).onclick = function() { selectTab(name); };

@@ -73,15 +73,38 @@ func closeCurrentBridge() {
 	currentBridgeMu.Unlock()
 }
 
+func printUsage() {
+	fmt.Println("Connect Your Agent (CYA) - secure, ephemeral remote agent bridge")
+	fmt.Println("")
+	fmt.Println("Usage:")
+	fmt.Println("  cya <session-code> [key]              Run bridge daemon to connect this machine")
+	fmt.Println("  cya run [--url <url>] [--session <id>] --key <key> <command>")
+	fmt.Println("                                        Execute an encrypted command against an active session")
+	fmt.Println("  cya --help                            Show this help message")
+	fmt.Println("")
+	fmt.Println("Environment variables:")
+	fmt.Println("  BRIDGE_WS_URL     WebSocket URL of CYA server (for bridge mode)")
+	fmt.Println("  BRIDGE_CODE       Session code (fallback if not given in args)")
+	fmt.Println("  KEY / BRIDGE_KEY  Encryption key for E2E encryption")
+	fmt.Println("  CYA_URL           CYA server base URL (for run mode, default: http://localhost:8765)")
+}
+
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "run" {
-		handleRunCommand(os.Args[2:])
-		return
+	if len(os.Args) > 1 {
+		arg1 := os.Args[1]
+		if arg1 == "--help" || arg1 == "-h" || arg1 == "help" {
+			printUsage()
+			return
+		}
+		if arg1 == "run" {
+			handleRunCommand(os.Args[2:])
+			return
+		}
 	}
 
 	wsURL := os.Getenv("BRIDGE_WS_URL")
 	if wsURL == "" {
-		fatal(`Missing env var: BRIDGE_WS_URL`)
+		fatal(`Missing env var: BRIDGE_WS_URL. Run "cya --help" for usage information.`)
 	}
 
 	var code string
@@ -331,6 +354,10 @@ func handleRunCommand(args []string) {
 	if keyRaw == "" {
 		keyRaw = os.Getenv("KEY")
 	}
+	sessionOverride := os.Getenv("CYA_SESSION")
+	if sessionOverride == "" {
+		sessionOverride = os.Getenv("SESSION")
+	}
 	var cmdParts []string
 
 	for i := 0; i < len(args); i++ {
@@ -341,6 +368,9 @@ func handleRunCommand(args []string) {
 		} else if (arg == "--key" || arg == "-k") && i+1 < len(args) {
 			keyRaw = args[i+1]
 			i++
+		} else if (arg == "--session" || arg == "-s" || arg == "--code" || arg == "-c") && i+1 < len(args) {
+			sessionOverride = args[i+1]
+			i++
 		} else {
 			cmdParts = append(cmdParts, arg)
 		}
@@ -348,7 +378,7 @@ func handleRunCommand(args []string) {
 
 	cmdStr := strings.Join(cmdParts, " ")
 	if strings.TrimSpace(cmdStr) == "" {
-		fmt.Fprintln(os.Stderr, "Usage: cya run [--url <url>] --key <key/phrase> <command>")
+		fmt.Fprintln(os.Stderr, "Usage: cya run [--url <url>] [--session <id>] --key <key/phrase> <command>")
 		os.Exit(1)
 	}
 
@@ -361,7 +391,11 @@ func handleRunCommand(args []string) {
 			fmt.Fprintf(os.Stderr, "Error parsing key: %v\n", err)
 			os.Exit(1)
 		}
-		sessionCode = DeriveSessionCode(keyBytes)
+		if sessionOverride != "" && sessionCodePattern.MatchString(sessionOverride) {
+			sessionCode = sessionOverride
+		} else {
+			sessionCode = DeriveSessionCode(keyBytes)
+		}
 		k := DeriveSubkeys(keyBytes, sessionCode)
 		keys = &k
 	} else {
