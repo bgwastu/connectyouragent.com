@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <title>Connect Your Agent</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any" />
+    <link rel="icon" href="/favicon-48x48.png" type="image/png" sizes="48x48" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#6d4aff" />
+    <script src="/cya-crypto.js"></script>
     <style>
       :root {
         --bg: #ffffff;
@@ -128,6 +135,94 @@
       .btn-danger:hover {
         background: var(--code-bg);
         border-color: var(--border);
+      }
+
+      /* Switch toggle */
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 34px;
+        height: 18px;
+      }
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-color: var(--border-hover);
+        transition: 0.15s ease;
+        border-radius: 18px;
+      }
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 12px;
+        width: 12px;
+        left: 3px;
+        bottom: 3px;
+        background-color: var(--bg);
+        transition: 0.15s ease;
+        border-radius: 50%;
+      }
+      .switch input:checked + .slider {
+        background-color: var(--green);
+      }
+      .switch input:checked + .slider:before {
+        transform: translateX(16px);
+        background-color: #ffffff;
+      }
+
+      /* Embedded copy input */
+      .input-with-button {
+        position: relative;
+        display: flex;
+        align-items: center;
+        width: 100%;
+      }
+      .input-with-button input {
+        width: 100%;
+        padding: 7px 64px 7px 10px;
+        font-family: var(--font);
+        font-size: 12px;
+        background: var(--code-bg);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        outline: none;
+        transition: border-color 0.15s, opacity 0.15s;
+      }
+      .input-with-button input:focus {
+        border-color: var(--border-hover);
+      }
+      .input-with-button input:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .embedded-copy-btn {
+        position: absolute;
+        right: 4px;
+        padding: 3px 8px;
+        font-size: 11px;
+        font-family: inherit;
+        font-weight: 500;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        background: var(--card-bg);
+        color: var(--text);
+        cursor: pointer;
+        transition: background-color 0.15s, border-color 0.15s, opacity 0.15s;
+      }
+      .embedded-copy-btn:hover {
+        background: var(--bg);
+        border-color: var(--border-hover);
+      }
+      .embedded-copy-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
       }
 
       /* Home */
@@ -447,7 +542,7 @@
           <div class="info-title">Privacy & Security</div>
           <ul class="info-list">
             <li><strong>100% In-Memory:</strong> Sessions, metadata, and commands exist strictly in volatile RAM. Nothing is ever saved to disk or a database.</li>
-            <li><strong>Zero Logging:</strong> No command history, outputs, or credentials are saved or tracked on server infrastructure.</li>
+            <li><strong>End-to-End Encrypted:</strong> Commands, outputs, and metadata are encrypted with AES-128-GCM using a key held strictly in your browser. The relay server cannot read your traffic.</li>
             <li><strong>Ephemeral & Revocable:</strong> Disconnecting immediately closes the bridge and destroys the session. Sessions automatically self-destruct when idle.</li>
           </ul>
         </div>
@@ -482,6 +577,26 @@
               <div class="code-actions">
                 <span id="connect-tip" class="hint"></span>
                 <button id="copy-cmd" type="button">Copy Command</button>
+              </div>
+            </div>
+
+            <div id="e2e-card" class="info-box" style="margin-top: 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-weight: 600; font-size: 13px;">Encryption Key</span>
+                  <span id="enc-status-text" class="hint" style="font-size: 11px;">Enabled</span>
+                </div>
+                <label class="switch" title="Toggle encryption">
+                  <input type="checkbox" id="session-enc-toggle" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div id="enc-input-wrapper" style="margin-top: 4px;">
+                <div class="input-with-button">
+                  <input type="text" id="key-display-input" readonly spellcheck="false" autocomplete="off" />
+                  <button type="button" id="copy-key-btn" class="embedded-copy-btn">Copy</button>
+                </div>
+                <div class="hint" style="font-size: 11px; margin-top: 6px;">Kept in your browser URL fragment and never sent to the server. All traffic is encrypted with AES-128-GCM.</div>
               </div>
             </div>
           </div>
@@ -529,8 +644,15 @@
     </main>
 
     <script>
+      if (location.hostname === "0.0.0.0") {
+        location.replace(location.href.replace("//0.0.0.0", "//localhost"));
+      }
+
       var BASE = location.origin;
       var CODE = (location.pathname.match(/^\/c\/([0-9a-f]{12})/) || [])[1];
+      var HASH_KEY = location.hash ? decodeURIComponent(location.hash.slice(1)).trim() : "";
+      var SESSION_KEY_BYTES = null;
+      var SESSION_SUBKEYS = null;
       var TAB = likelyWindows() ? "win" : "unix";
       var TIPS = {
         unix: "Tip: Use sudo if your agent needs root permissions.",
@@ -554,9 +676,19 @@
         return /win/i.test(p) || /Windows/i.test(navigator.userAgent || "");
       }
       function promptUrl(code) { return BASE + "/c/" + code + "/prompt.md"; }
-      function unixCmd(code) { return "curl -fsSL " + BASE + "/c/" + code + " | bash"; }
-      function routerCmd(code) { return "wget -qO- " + BASE + "/c/" + code + " | sh"; }
-      function winCmd(code) { return "irm '" + BASE + "/c/" + code + "/windows.ps1' | iex"; }
+
+      function unixCmd(code) {
+        if (HASH_KEY) return "curl -fsSL " + BASE + "/c/" + code + " | KEY=\"" + HASH_KEY + "\" bash";
+        return "curl -fsSL " + BASE + "/c/" + code + " | bash";
+      }
+      function routerCmd(code) {
+        if (HASH_KEY) return "wget -qO- " + BASE + "/c/" + code + " | KEY=\"" + HASH_KEY + "\" sh";
+        return "wget -qO- " + BASE + "/c/" + code + " | sh";
+      }
+      function winCmd(code) {
+        if (HASH_KEY) return "$env:KEY=\"" + HASH_KEY + "\"; irm '" + BASE + "/c/" + code + "/windows.ps1' | iex";
+        return "irm '" + BASE + "/c/" + code + "/windows.ps1' | iex";
+      }
 
       function selectTab(which) {
         TAB = which;
@@ -578,7 +710,7 @@
           if (id === "cmd-unix") text = unixCmd(CODE);
           else if (id === "cmd-win") text = winCmd(CODE);
           else if (id === "cmd-router") text = routerCmd(CODE);
-          else if (id === "short-prompt") text = "Follow this instruction: " + promptUrl(CODE);
+          else if (id === "short-prompt") text = $("short-prompt") ? $("short-prompt").textContent : "";
         }
         if (!text) return;
 
@@ -686,15 +818,53 @@
         setCommandTexts(s.code);
       }
 
-      function showActive(s) {
+      async function showActive(s) {
         $("waiting").hidden = true;
         $("connected").hidden = false;
+
+        if (s.enc_meta && SESSION_SUBKEYS && window.CYA_CRYPTO) {
+          try {
+            var metaStr = await window.CYA_CRYPTO.decryptPayload(SESSION_SUBKEYS.metaKey, s.enc_meta.iv, s.enc_meta.data, "meta");
+            s.meta = JSON.parse(metaStr);
+          } catch(e) {
+            console.warn("Could not decrypt agent metadata:", e);
+          }
+        }
+
         var m = s.meta || {};
         setText("connected-to", "Connected to " + (m.user || "machine") + "@" + (m.host || "unknown"));
         setText("meta-os", (m.os || "") + " (" + (m.arch || "") + ")");
         setText("meta-shell", m.shell || "-");
         setText("meta-cwd", m.cwd || "-");
         setText("short-prompt", "Follow this instruction: " + promptUrl(s.code));
+
+        if (SESSION_SUBKEYS && s.history && s.history.length > 0 && window.CYA_CRYPTO) {
+          for (var i = 0; i < s.history.length; i++) {
+            var item = s.history[i];
+            if (item.enc) {
+              if (item.cmd_data && !item._dec_cmd) {
+                try {
+                  var cStr = await window.CYA_CRYPTO.decryptPayload(SESSION_SUBKEYS.cmdKey, item.cmd_iv, item.cmd_data, item.id);
+                  var cObj = JSON.parse(cStr);
+                  item._dec_cmd = cObj.cmd || "";
+                } catch(e) { item._dec_cmd = "[Decryption error]"; }
+              }
+              if (item.resp_data && !item._dec_output) {
+                try {
+                  var rStr = await window.CYA_CRYPTO.decryptPayload(SESSION_SUBKEYS.respKey, item.resp_iv, item.resp_data, item.id);
+                  var rObj = JSON.parse(rStr);
+                  item._dec_output = rObj.output || "";
+                  item._dec_exit = rObj.exit_code;
+                  item._dec_trunc = rObj.truncated;
+                } catch(e) { item._dec_output = "[Decryption error]"; }
+              }
+              item.cmd = item._dec_cmd || "";
+              item.output = item._dec_output || "";
+              item.exit_code = item._dec_exit !== undefined ? item._dec_exit : 0;
+              item.truncated = !!item._dec_trunc;
+            }
+          }
+        }
         renderHistory(s.history);
       }
 
@@ -704,7 +874,7 @@
           if (res.status === 404) return location.replace("/");
           if (!res.ok) return;
           var s = await res.json();
-          if (s.status === "active") showActive(s);
+          if (s.status === "active") await showActive(s);
           else showWaiting(s);
         } catch (_) {}
       }
@@ -715,9 +885,13 @@
             this.textContent = "Creating...";
             this.disabled = true;
             try {
-              var r = await fetch(BASE + "/api/session", { method: "POST" });
+              var entropy = window.CYA_CRYPTO ? window.CYA_CRYPTO.generateEntropy() : crypto.getRandomValues(new Uint8Array(16));
+              var b62 = window.CYA_CRYPTO ? window.CYA_CRYPTO.bytesToBase62(entropy) : "";
+              var code = window.CYA_CRYPTO ? await window.CYA_CRYPTO.keyToSessionCode(entropy) : "";
+
+              var r = await fetch(BASE + "/api/session" + (code ? "?code=" + code : ""), { method: "POST" });
               var s = await r.json();
-              location.replace("/c/" + s.code);
+              location.replace("/c/" + s.code + (b62 ? "#" + b62 : ""));
             } catch (_) {
               this.textContent = "Create Session";
               this.disabled = false;
@@ -728,6 +902,69 @@
 
         $("home").hidden = true;
         $("session").hidden = false;
+
+        async function applyKey(keyStr) {
+          HASH_KEY = keyStr;
+          if (HASH_KEY) {
+            history.replaceState(null, "", location.pathname + "#" + HASH_KEY);
+            $("session-enc-toggle").checked = true;
+            setText("enc-status-text", "Enabled");
+            $("key-display-input").value = HASH_KEY;
+            $("key-display-input").disabled = false;
+            $("copy-key-btn").disabled = false;
+            if (window.CYA_CRYPTO) {
+              try {
+                SESSION_KEY_BYTES = window.CYA_CRYPTO.parseKey(HASH_KEY);
+                SESSION_SUBKEYS = await window.CYA_CRYPTO.deriveWebCryptoKeys(SESSION_KEY_BYTES, CODE);
+              } catch (_) {}
+            }
+          } else {
+            history.replaceState(null, "", location.pathname);
+            SESSION_KEY_BYTES = null;
+            SESSION_SUBKEYS = null;
+            $("session-enc-toggle").checked = false;
+            setText("enc-status-text", "Disabled");
+            $("key-display-input").value = "Encryption disabled";
+            $("key-display-input").disabled = true;
+            $("copy-key-btn").disabled = true;
+          }
+          setCommandTexts(CODE);
+        }
+
+        $("session-enc-toggle").onchange = async function() {
+          if (this.checked) {
+            var entropy = window.CYA_CRYPTO ? window.CYA_CRYPTO.generateEntropy() : crypto.getRandomValues(new Uint8Array(16));
+            var newKey = window.CYA_CRYPTO ? window.CYA_CRYPTO.bytesToBase62(entropy) : "";
+            await applyKey(newKey);
+          } else {
+            await applyKey("");
+          }
+        };
+
+        $("copy-key-btn").onclick = function() {
+          if (!HASH_KEY) return;
+          var btn = this;
+          var orig = btn.textContent;
+          function markCopied() {
+            btn.textContent = "Copied!";
+            btn.disabled = true;
+            setTimeout(function() {
+              btn.textContent = orig;
+              btn.disabled = false;
+            }, 1200);
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(HASH_KEY).then(markCopied).catch(function() {
+              fallbackCopy(HASH_KEY);
+              markCopied();
+            });
+          } else {
+            fallbackCopy(HASH_KEY);
+            markCopied();
+          }
+        };
+
+        await applyKey(HASH_KEY);
 
         ["unix", "win", "router"].forEach(function(name) {
           $("tab-" + name).onclick = function() { selectTab(name); };
