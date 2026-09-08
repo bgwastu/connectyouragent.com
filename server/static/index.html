@@ -72,10 +72,11 @@
 
       .brand-title {
         font-weight: 700;
-        font-size: 15px;
+        font-size: 18px;
         text-decoration: none;
         color: var(--text);
         letter-spacing: -0.01em;
+        margin: 0;
       }
 
       .source-link {
@@ -418,15 +419,14 @@
   </head>
   <body>
     <main>
-      <header>
-        <a href="/" class="brand-title">Connect Your Agent</a>
-        <a href="https://github.com/bgwastu/cya" target="_blank" rel="noreferrer" class="source-link">GitHub</a>
-      </header>
-
       <!-- HOME -->
       <section id="home" class="home-stack">
+        <header>
+          <h1 class="brand-title">Connect Your Agent</h1>
+          <a href="https://github.com/bgwastu/cya" target="_blank" rel="noreferrer" class="source-link">GitHub</a>
+        </header>
+
         <div class="hero-intro">
-          <h1>Connect Your Agent</h1>
           <p>Give Claude Code, Codex, OpenClaw, or custom AI agents temporary, user-approved shell access to your machine without opening inbound ports or sharing SSH credentials.</p>
         </div>
 
@@ -454,7 +454,12 @@
       </section>
 
       <!-- SESSION -->
-      <section id="session" hidden>
+      <section id="session" class="home-stack" hidden>
+        <header>
+          <a href="/" class="brand-title">Connect Your Agent</a>
+          <a href="https://github.com/bgwastu/cya" target="_blank" rel="noreferrer" class="source-link">GitHub</a>
+        </header>
+
         <!-- WAITING VIEW -->
         <div id="waiting" style="display: flex; flex-direction: column; gap: 20px;">
           <div class="status-pill waiting">
