@@ -35,6 +35,9 @@ const connectWindowsPs1 = await Bun.file(
 const promptTemplate = await Bun.file(
   new URL("./static/prompt.md", import.meta.url),
 ).text();
+const cyaCryptoJs = await Bun.file(
+  new URL("./static/cya-crypto.js", import.meta.url),
+).text();
 
 export interface AgentMeta {
   host: string;
@@ -46,31 +49,49 @@ export interface AgentMeta {
   elevated?: boolean;
 }
 
+export interface EncryptedMeta {
+  enc: true;
+  iv: string;
+  data: string;
+}
+
 interface CommandResult {
-  output: string;
-  exit_code: number;
-  truncated: boolean;
+  output?: string;
+  exit_code?: number;
+  truncated?: boolean;
+  enc?: boolean;
+  id?: string;
+  iv?: string;
+  data?: string;
 }
 
 export interface CommandHistoryEntry {
   id: string;
-  cmd: string;
+  cmd?: string;
   timestamp: number;
-  exit_code: number;
-  output: string;
-  truncated: boolean;
+  exit_code?: number;
+  output?: string;
+  truncated?: boolean;
+  enc?: boolean;
+  cmd_iv?: string;
+  cmd_data?: string;
+  resp_iv?: string;
+  resp_data?: string;
 }
 
 type PendingCommand = {
   cmd: string;
   timestamp: number;
+  enc?: boolean;
+  cmd_iv?: string;
+  cmd_data?: string;
   resolve: (value: CommandResult) => void;
   reject: (error: Error) => void;
   timer: Timer;
 };
 
 type PendingFileRead = {
-  resolve: (value: { path: string; data: string; size: number }) => void;
+  resolve: (value: { path: string; data: string; size: number; enc?: boolean; iv?: string }) => void;
   reject: (error: Error) => void;
   timer: Timer;
 };
@@ -78,6 +99,7 @@ type PendingFileRead = {
 interface Session {
   code: string;
   meta?: AgentMeta;
+  encMeta?: EncryptedMeta;
   createdAt: number;
   lastActivity: number;
   agent: ServerWebSocket<unknown> | null;
@@ -87,13 +109,24 @@ interface Session {
 }
 
 type ProtocolMsg =
-  | { type: "join"; session: string; role: "agent"; meta: AgentMeta }
+  | {
+      type: "join";
+      session: string;
+      role: "agent";
+      meta?: AgentMeta;
+      enc?: boolean;
+      iv?: string;
+      data?: string;
+    }
   | {
       type: "command_result";
       id: string;
-      output: string;
-      exit_code: number;
+      output?: string;
+      exit_code?: number;
       truncated?: boolean;
+      enc?: boolean;
+      iv?: string;
+      data?: string;
     }
   | { type: "error"; message: string }
   | { type: "bye"; reason?: string }
@@ -102,10 +135,12 @@ type ProtocolMsg =
   | {
       type: "file_read_result";
       id: string;
-      path: string;
+      path?: string;
       data: string;
-      size: number;
+      size?: number;
       error?: string;
+      enc?: boolean;
+      iv?: string;
     };
 
 type RouteRequest = Request & { params: Record<string, string | undefined> };
@@ -176,6 +211,12 @@ export const routes = {
     GET: downloadRoute,
   },
   "/api/session/:code/prompt.md": { GET: apiPromptRoute },
+  "/cya-crypto.js": {
+    GET: () =>
+      new Response(cyaCryptoJs, {
+        headers: { "Content-Type": "application/javascript; charset=utf-8", ...NO_CACHE },
+      }),
+  },
   "/c/:code": connectRoute,
   "/c/:code/windows.ps1": connectWindowsRoute,
   "/c/:code/prompt.md": promptRoute,
@@ -188,7 +229,14 @@ export function homeRoute(): Response {
 export function createSessionRoute(req: Request): Response {
   if (req.method !== "POST") return methodNotAllowed(["POST"]);
   const origin = effectiveOrigin(req);
-  const code = createUniqueSessionCode();
+  let code = createUniqueSessionCode();
+  try {
+    const url = new URL(req.url);
+    const requested = url.searchParams.get("code") || req.headers.get("X-Session-Code");
+    if (requested && isSessionCode(requested) && !sessions.has(requested)) {
+      code = requested;
+    }
+  } catch {}
   createSession(code);
   return json({
     code,
@@ -230,12 +278,25 @@ export async function downloadRoute(req: RouteRequest): Promise<Response> {
 
   const url = new URL(req.url);
   const path = url.searchParams.get("path");
-  if (!path) return json({ error: "Missing ?path= query parameter" }, 400);
+  const encPathIv = url.searchParams.get("iv");
+  const encPathData = url.searchParams.get("data");
+
+  if (!path && !(encPathIv && encPathData)) {
+    return json({ error: "Missing ?path= or ?iv=&data= query parameter" }, 400);
+  }
 
   try {
-    const result = await executeFileRead(session, path);
+    const encPayload = encPathIv && encPathData ? { iv: encPathIv, data: encPathData } : undefined;
+    const result = await executeFileRead(session, path || "", 30, encPayload);
+    if (result.enc) {
+      return json({
+        enc: true,
+        iv: result.iv,
+        data: result.data,
+      });
+    }
     const bytes = Buffer.from(result.data, "base64");
-    const filename = path.split("/").filter(Boolean).pop() || "download";
+    const filename = (path || "download").split("/").filter(Boolean).pop() || "download";
     return new Response(bytes, {
       headers: {
         "Content-Type": "application/octet-stream",
@@ -310,20 +371,31 @@ export function handleJoin(
     return;
   }
 
-  session.meta = {
-    host: msg.meta.host,
-    os: msg.meta.os,
-    arch: msg.meta.arch,
-    user: msg.meta.user,
-    cwd: msg.meta.cwd || "",
-    shell: msg.meta.shell || "",
-    elevated: msg.meta.elevated || false,
-  };
+  if (msg.enc && msg.iv && msg.data) {
+    session.encMeta = {
+      enc: true,
+      iv: msg.iv,
+      data: msg.data,
+    };
+    session.meta = undefined;
+  } else if (msg.meta) {
+    session.meta = {
+      host: msg.meta.host,
+      os: msg.meta.os,
+      arch: msg.meta.arch,
+      user: msg.meta.user,
+      cwd: msg.meta.cwd || "",
+      shell: msg.meta.shell || "",
+      elevated: msg.meta.elevated || false,
+    };
+    session.encMeta = undefined;
+  }
+
   session.agent = ws;
   session.lastActivity = Date.now();
   ws.send(
-      JSON.stringify({ type: "output", data: `Joined session ${msg.session}\n` }),
-    );
+    JSON.stringify({ type: "output", data: `Joined session ${msg.session}\n` }),
+  );
 }
 
 export function handleAgentMessage(
@@ -341,18 +413,42 @@ export function handleAgentMessage(
       if (!pending) return;
       clearTimeout(pending.timer);
       session.pendingHttp.delete(msg.id);
+
+      if (msg.enc && msg.iv && msg.data) {
+        const res: CommandResult = {
+          enc: true,
+          id: msg.id,
+          iv: msg.iv,
+          data: msg.data,
+        };
+        session.history.push({
+          id: msg.id,
+          enc: true,
+          cmd_iv: pending.cmd_iv,
+          cmd_data: pending.cmd_data,
+          resp_iv: msg.iv,
+          resp_data: msg.data,
+          timestamp: pending.timestamp,
+        });
+        if (session.history.length > 50) {
+          session.history.shift();
+        }
+        pending.resolve(res);
+        return;
+      }
+
       const res: CommandResult = {
-        output: msg.output,
-        exit_code: msg.exit_code,
+        output: msg.output ?? "",
+        exit_code: msg.exit_code ?? 0,
         truncated: msg.truncated === true,
       };
       session.history.push({
         id: msg.id,
         cmd: pending.cmd,
         timestamp: pending.timestamp,
-        exit_code: res.exit_code,
-        output: res.output,
-        truncated: res.truncated,
+        exit_code: res.exit_code ?? 0,
+        output: res.output ?? "",
+        truncated: res.truncated ?? false,
       });
       if (session.history.length > 50) {
         session.history.shift();
@@ -369,7 +465,13 @@ export function handleAgentMessage(
       if (msg.error) {
         pending.reject(new Error(msg.error));
       } else {
-        pending.resolve({ path: msg.path, data: msg.data, size: msg.size });
+        pending.resolve({
+          path: msg.path || "",
+          data: msg.data,
+          size: msg.size || 0,
+          enc: msg.enc,
+          iv: msg.iv,
+        });
       }
       return;
     }
@@ -381,6 +483,7 @@ export function handleDisconnect(ws: ServerWebSocket<unknown>): void {
     if (session.agent !== ws) continue;
     session.agent = null;
     session.meta = undefined;
+    session.encMeta = undefined;
     session.lastActivity = Date.now();
     for (const pending of session.pendingFileRead.values()) {
       clearTimeout(pending.timer);
@@ -459,6 +562,10 @@ export function startServer() {
   return server;
 }
 
+type ParsedCommand =
+  | { enc: false; cmd: string; timeout?: number }
+  | { enc: true; id: string; iv: string; data: string; timeout?: number };
+
 async function handleCommand(
   req: Request,
   url: URL,
@@ -466,7 +573,7 @@ async function handleCommand(
 ): Promise<Response> {
   if (!session.agent) return json({ error: "Agent not connected" }, 409);
 
-  let parsed: { cmd: string; timeout?: number } | null;
+  let parsed: ParsedCommand | null;
   try {
     parsed = await getCommand(req, url);
   } catch (error) {
@@ -480,13 +587,24 @@ async function handleCommand(
     return json(
       {
         error:
-          'Missing cmd. Use ?cmd=... for GET or JSON {"cmd":"..."} or {"cmd_b64":"..."}.',
+          'Missing cmd. Use ?cmd=... for GET or JSON {"cmd":"..."} or {"cmd_b64":"..."} or {"enc":true,...}.',
       },
       400,
     );
   }
   if (session.pendingHttp.size > 0) {
     return json({ error: "Command already running" }, 409);
+  }
+
+  if (parsed.enc) {
+    try {
+      return json(await executeEncryptedHttpCommand(session, parsed.id, parsed.iv, parsed.data, parsed.timeout));
+    } catch (error) {
+      return json(
+        { error: error instanceof Error ? error.message : "Command failed" },
+        500,
+      );
+    }
   }
 
   try {
@@ -502,15 +620,15 @@ async function handleCommand(
 async function getCommand(
   req: Request,
   url: URL,
-): Promise<{ cmd: string; timeout?: number } | null> {
+): Promise<ParsedCommand | null> {
   const queryCmd =
     url.searchParams.get("cmd") || url.searchParams.get("command");
   const queryB64 = url.searchParams.get("cmd_b64");
   if (queryB64) {
     const decoded = decodeBase64Command(queryB64);
-    if (decoded) return { cmd: decoded };
+    if (decoded) return { enc: false, cmd: decoded };
   }
-  if (queryCmd?.trim()) return { cmd: queryCmd };
+  if (queryCmd?.trim()) return { enc: false, cmd: queryCmd };
   if (req.method !== "POST") return null;
 
   try {
@@ -519,7 +637,21 @@ async function getCommand(
       command?: unknown;
       cmd_b64?: unknown;
       timeout?: unknown;
+      enc?: unknown;
+      id?: unknown;
+      iv?: unknown;
+      data?: unknown;
     };
+    if (body.enc === true && typeof body.iv === "string" && typeof body.data === "string") {
+      const id = typeof body.id === "string" && body.id.trim() ? body.id.trim() : crypto.randomUUID();
+      return {
+        enc: true,
+        id,
+        iv: body.iv,
+        data: body.data,
+        timeout: parseCommandTimeout(body.timeout),
+      };
+    }
     let cmd = typeof body.cmd === "string" && body.cmd.trim() ? body.cmd : null;
     cmd ??=
       typeof body.command === "string" && body.command.trim()
@@ -531,6 +663,7 @@ async function getCommand(
     }
     if (!cmd) return null;
     return {
+      enc: false,
       cmd,
       timeout: parseCommandTimeout(body.timeout),
     };
@@ -629,11 +762,46 @@ function executeHttpCommand(
   });
 }
 
+function executeEncryptedHttpCommand(
+  session: Session,
+  id: string,
+  iv: string,
+  data: string,
+  timeoutSec?: number,
+): Promise<CommandResult> {
+  if (!session.agent) return Promise.reject(new Error("Agent not connected"));
+
+  const timeoutMs = (timeoutSec ?? 30) * 1000;
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      session.pendingHttp.delete(id);
+      reject(
+        new Error(`Command timed out after ${Math.round(timeoutMs / 1000)}s`),
+      );
+    }, timeoutMs);
+
+    session.pendingHttp.set(id, {
+      cmd: "",
+      enc: true,
+      cmd_iv: iv,
+      cmd_data: data,
+      timestamp: Date.now(),
+      resolve,
+      reject,
+      timer,
+    });
+    session.agent!.send(JSON.stringify({ type: "command", enc: true, id, iv, data }));
+    session.lastActivity = Date.now();
+  });
+}
+
 function executeFileRead(
   session: Session,
   path: string,
   timeoutSec = 30,
-): Promise<{ path: string; data: string; size: number }> {
+  encPayload?: { iv: string; data: string },
+): Promise<{ path: string; data: string; size: number; enc?: boolean; iv?: string }> {
   if (!session.agent) return Promise.reject(new Error("Agent not connected"));
 
   const id = crypto.randomUUID();
@@ -646,7 +814,11 @@ function executeFileRead(
     }, timeoutMs);
 
     session.pendingFileRead.set(id, { resolve, reject, timer });
-    session.agent!.send(JSON.stringify({ type: "file_read", id, path }));
+    if (encPayload) {
+      session.agent!.send(JSON.stringify({ type: "file_read", id, enc: true, iv: encPayload.iv, data: encPayload.data }));
+    } else {
+      session.agent!.send(JSON.stringify({ type: "file_read", id, path }));
+    }
     session.lastActivity = Date.now();
   });
 }
@@ -666,6 +838,7 @@ export function toSessionResponse(session: Session, baseUrl?: string) {
   return {
     code: session.code,
     status: sessionStatus(session),
+    encrypted: !!session.encMeta,
     meta: {
       host: meta?.host,
       os: meta?.os,
@@ -675,6 +848,7 @@ export function toSessionResponse(session: Session, baseUrl?: string) {
       shell: meta?.shell,
       elevated: meta?.elevated,
     },
+    enc_meta: session.encMeta,
     history: session.history,
     created_at: new Date(session.createdAt).toISOString(),
     connect_url: baseUrl
@@ -729,14 +903,34 @@ function connectWindowsScript(code: string, origin: string): Response {
 }
 
 async function staticHandler(path: string): Promise<Response | null> {
-  if (!path.startsWith("/bin/")) return null;
-  const fileName = path.slice(5);
-  if (!/^[a-zA-Z0-9_.-]+$/.test(fileName)) return null;
-  const file = Bun.file(`./public/bin/${fileName}`);
-  if (!(await file.exists())) return null;
-  return new Response(file, {
-    headers: { "Content-Type": "application/octet-stream", ...NO_CACHE },
-  });
+  if (path.startsWith("/bin/")) {
+    const fileName = path.slice(5);
+    if (!/^[a-zA-Z0-9_.-]+$/.test(fileName)) return null;
+    const file = Bun.file(`./public/bin/${fileName}`);
+    if (!(await file.exists())) return null;
+    return new Response(file, {
+      headers: { "Content-Type": "application/octet-stream", ...NO_CACHE },
+    });
+  }
+
+  const rootFile = path.slice(1);
+  if (/^[a-zA-Z0-9_.-]+$/.test(rootFile)) {
+    const file = Bun.file(`./public/${rootFile}`);
+    if (await file.exists()) {
+      let contentType = "application/octet-stream";
+      if (rootFile.endsWith(".svg")) contentType = "image/svg+xml";
+      else if (rootFile.endsWith(".png")) contentType = "image/png";
+      else if (rootFile.endsWith(".ico")) contentType = "image/x-icon";
+      else if (rootFile.endsWith(".webmanifest")) contentType = "application/manifest+json";
+      else if (rootFile.endsWith(".json")) contentType = "application/json";
+
+      return new Response(file, {
+        headers: { "Content-Type": contentType, ...NO_CACHE },
+      });
+    }
+  }
+
+  return null;
 }
 
 function parseMessage(raw: string): ProtocolMsg | null {
@@ -783,9 +977,12 @@ export function effectiveOrigin(req: Request): string {
       ? "https"
       : "http";
   const forwardedHost = req.headers.get("X-Forwarded-Host");
-  const host = forwardedHost
+  let host = forwardedHost
     ? forwardedHost.split(",")[0].trim()
     : req.headers.get("Host") || new URL(req.url).host || "localhost";
+  if (host.startsWith("0.0.0.0")) {
+    host = host.replace(/^0\.0\.0\.0/, "localhost");
+  }
   return `${proto}://${host}`;
 }
 

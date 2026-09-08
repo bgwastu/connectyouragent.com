@@ -74,16 +74,64 @@ func closeCurrentBridge() {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "run" {
+		handleRunCommand(os.Args[2:])
+		return
+	}
+
 	wsURL := os.Getenv("BRIDGE_WS_URL")
 	if wsURL == "" {
 		fatal(`Missing env var: BRIDGE_WS_URL`)
 	}
-	code := os.Args[1]
-	if !sessionCodePattern.MatchString(code) {
+
+	var code string
+	var keyBytes []byte
+
+	rawKey := os.Getenv("BRIDGE_KEY")
+	if rawKey == "" {
+		rawKey = os.Getenv("KEY")
+	}
+
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--key" && i+1 < len(args) {
+			rawKey = args[i+1]
+			i++
+		} else if arg == "--code" && i+1 < len(args) {
+			code = args[i+1]
+			i++
+		} else if sessionCodePattern.MatchString(arg) && code == "" {
+			code = arg
+		} else if rawKey == "" {
+			rawKey = arg
+		}
+	}
+
+	if code == "" {
 		code = os.Getenv("BRIDGE_CODE")
 	}
+
+	if rawKey != "" {
+		parsed, err := ParseKeyOrPhrase(rawKey)
+		if err == nil {
+			keyBytes = parsed
+			if code == "" {
+				code = DeriveSessionCode(keyBytes)
+			}
+		} else if code == "" && sessionCodePattern.MatchString(rawKey) {
+			code = rawKey
+		}
+	}
+
 	if !sessionCodePattern.MatchString(code) {
-		fatal("Usage: cya-bridge <session code>")
+		fatal("Usage: cya-bridge <session code> [key/phrase] or KEY=<key/phrase> cya-bridge")
+	}
+
+	var sessionKeys *SessionKeys
+	if len(keyBytes) > 0 {
+		k := DeriveSubkeys(keyBytes, code)
+		sessionKeys = &k
 	}
 
 	// Derive HTTP base URL from WebSocket URL for the connect link
@@ -113,7 +161,7 @@ func main() {
 		default:
 		}
 
-		_, reconnect := dialAndRun(wsURL, code, connectURL, quit)
+		_, reconnect := dialAndRun(wsURL, code, connectURL, sessionKeys, quit)
 		if !reconnect {
 			return
 		}
@@ -274,7 +322,126 @@ func (w *wsConn) closeUnderlying() {
 	_ = w.conn.Close()
 }
 
-func readCommands(wsc *wsConn, dot string) bool {
+func handleRunCommand(args []string) {
+	url := os.Getenv("CYA_URL")
+	if url == "" {
+		url = "http://localhost:8765"
+	}
+	keyRaw := os.Getenv("CYA_KEY")
+	if keyRaw == "" {
+		keyRaw = os.Getenv("KEY")
+	}
+	var cmdParts []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if (arg == "--url" || arg == "-u") && i+1 < len(args) {
+			url = args[i+1]
+			i++
+		} else if (arg == "--key" || arg == "-k") && i+1 < len(args) {
+			keyRaw = args[i+1]
+			i++
+		} else {
+			cmdParts = append(cmdParts, arg)
+		}
+	}
+
+	cmdStr := strings.Join(cmdParts, " ")
+	if strings.TrimSpace(cmdStr) == "" {
+		fmt.Fprintln(os.Stderr, "Usage: cya run [--url <url>] --key <key/phrase> <command>")
+		os.Exit(1)
+	}
+
+	var sessionCode string
+	var keys *SessionKeys
+
+	if keyRaw != "" {
+		keyBytes, err := ParseKeyOrPhrase(keyRaw)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing key: %v\n", err)
+			os.Exit(1)
+		}
+		sessionCode = DeriveSessionCode(keyBytes)
+		k := DeriveSubkeys(keyBytes, sessionCode)
+		keys = &k
+	} else {
+		fmt.Fprintln(os.Stderr, "Error: missing --key or KEY env var for run command")
+		os.Exit(1)
+	}
+
+	runURL := fmt.Sprintf("%s/api/session/%s/run", strings.TrimRight(url, "/"), sessionCode)
+	reqID := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	cmdPayload, _ := json.Marshal(map[string]any{
+		"cmd": cmdStr,
+	})
+	iv, encData, err := EncryptAESGCM(keys.CmdKey, cmdPayload, []byte(reqID))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error encrypting command: %v\n", err)
+		os.Exit(1)
+	}
+
+	bodyJSON, _ := json.Marshal(map[string]any{
+		"enc":  true,
+		"id":   reqID,
+		"iv":   iv,
+		"data": encData,
+	})
+
+	resp, err := http.Post(runURL, "application/json", bytes.NewReader(bodyJSON))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "HTTP request failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "Server error (%d): %s\n", resp.StatusCode, string(respBytes))
+		os.Exit(1)
+	}
+
+	var respPayload struct {
+		Enc  bool   `json:"enc"`
+		ID   string `json:"id"`
+		IV   string `json:"iv"`
+		Data string `json:"data"`
+	}
+	if err := json.Unmarshal(respBytes, &respPayload); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed parsing JSON response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !respPayload.Enc {
+		fmt.Fprintln(os.Stderr, "Server returned unencrypted response")
+		os.Exit(1)
+	}
+
+	decrypted, err := DecryptAESGCM(keys.RespKey, respPayload.IV, respPayload.Data, []byte(reqID))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed decrypting response: %v\n", err)
+		os.Exit(1)
+	}
+
+	var res struct {
+		Output   string `json:"output"`
+		ExitCode int    `json:"exit_code"`
+	}
+	if err := json.Unmarshal(decrypted, &res); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed parsing decrypted response: %v\n", err)
+		os.Exit(1)
+	}
+
+	os.Stdout.WriteString(res.Output)
+	os.Exit(res.ExitCode)
+}
+
+func readCommands(wsc *wsConn, keys *SessionKeys, dot string) bool {
 	defer func() {
 		printLine("\n", dot, " Connection closed.", ansiReset)
 		wsc.close()
@@ -305,37 +472,95 @@ func readCommands(wsc *wsConn, dot string) bool {
 			printLine(dot, " ", ansiRed, "Server error:", ansiReset, " ", msg.Message)
 		case "command":
 			var msg struct {
-				Cmd string `json:"cmd"`
-				ID  string `json:"id"`
+				Cmd  string `json:"cmd"`
+				ID   string `json:"id"`
+				Enc  bool   `json:"enc"`
+				IV   string `json:"iv"`
+				Data string `json:"data"`
 			}
 			_ = json.Unmarshal(data, &msg)
 			if msg.ID == "" {
 				continue
 			}
-			printLine(ansiCyan+"▶"+ansiReset, " ", ansiBold, msg.Cmd, ansiReset)
-			out, code, truncated := runOneShot(msg.Cmd)
+
+			cmdToRun := msg.Cmd
+			if msg.Enc {
+				if keys == nil {
+					printLine(dot, " ", ansiRed, "Received encrypted command without configured key", ansiReset)
+					continue
+				}
+				decrypted, err := DecryptAESGCM(keys.CmdKey, msg.IV, msg.Data, []byte(msg.ID))
+				if err != nil {
+					printLine(dot, " ", ansiRed, "Command decryption failed: ", err.Error(), ansiReset)
+					continue
+				}
+				var inner struct {
+					Cmd string `json:"cmd"`
+				}
+				if err := json.Unmarshal(decrypted, &inner); err != nil {
+					continue
+				}
+				cmdToRun = inner.Cmd
+			}
+
+			printLine(ansiCyan+"▶"+ansiReset, " ", ansiBold, cmdToRun, ansiReset)
+			out, code, truncated := runOneShot(cmdToRun)
 			if out != "" {
 				for _, line := range strings.Split(out, "\n") {
 					_, _ = os.Stdout.WriteString(ansiDim + "  " + line + ansiReset + "\n")
 				}
 			}
-			wsc.sendJSON(map[string]any{
-				"type":      "command_result",
-				"id":        msg.ID,
-				"output":    out,
-				"exit_code": code,
-				"truncated": truncated,
-			})
+
+			if msg.Enc && keys != nil {
+				innerRes, _ := json.Marshal(map[string]any{
+					"output":    out,
+					"exit_code": code,
+					"truncated": truncated,
+				})
+				iv, encData, err := EncryptAESGCM(keys.RespKey, innerRes, []byte(msg.ID))
+				if err == nil {
+					wsc.sendJSON(map[string]any{
+						"type": "command_result",
+						"id":   msg.ID,
+						"enc":  true,
+						"iv":   iv,
+						"data": encData,
+					})
+				}
+			} else {
+				wsc.sendJSON(map[string]any{
+					"type":      "command_result",
+					"id":        msg.ID,
+					"output":    out,
+					"exit_code": code,
+					"truncated": truncated,
+				})
+			}
 		case "file_read":
 			var msg struct {
 				ID   string `json:"id"`
 				Path string `json:"path"`
+				Enc  bool   `json:"enc"`
+				IV   string `json:"iv"`
+				Data string `json:"data"`
 			}
 			_ = json.Unmarshal(data, &msg)
 			if msg.ID == "" {
 				continue
 			}
-			sendFile(wsc, msg.ID, msg.Path)
+			filePath := msg.Path
+			if msg.Enc && keys != nil {
+				dec, err := DecryptAESGCM(keys.CmdKey, msg.IV, msg.Data, []byte(msg.ID))
+				if err == nil {
+					var inner struct {
+						Path string `json:"path"`
+					}
+					if err := json.Unmarshal(dec, &inner); err == nil {
+						filePath = inner.Path
+					}
+				}
+			}
+			sendFile(wsc, keys, msg.ID, filePath, msg.Enc && keys != nil)
 		case "bye":
 			wsc.close()
 			return false
@@ -343,61 +568,72 @@ func readCommands(wsc *wsConn, dot string) bool {
 	}
 }
 
-func sendFile(wsc *wsConn, id, path string) {
+func sendFile(wsc *wsConn, keys *SessionKeys, id, path string, enc bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		wsc.sendJSON(map[string]any{
-			"type":  "file_read_result",
-			"id":    id,
-			"path":  path,
-			"error": err.Error(),
-		})
+		sendFileResult(wsc, keys, id, path, "", 0, err.Error(), enc)
 		return
 	}
 	defer f.Close()
 
 	fi, err := f.Stat()
 	if err != nil {
-		wsc.sendJSON(map[string]any{
-			"type":  "file_read_result",
-			"id":    id,
-			"path":  path,
-			"error": err.Error(),
-		})
+		sendFileResult(wsc, keys, id, path, "", 0, err.Error(), enc)
 		return
 	}
 
 	size := fi.Size()
 	if size > maxFileSize {
-		wsc.sendJSON(map[string]any{
-			"type":  "file_read_result",
-			"id":    id,
-			"path":  path,
-			"error": fmt.Sprintf("file too large: %d bytes (max %d)", size, maxFileSize),
-		})
+		sendFileResult(wsc, keys, id, path, "", 0, fmt.Sprintf("file too large: %d bytes (max %d)", size, maxFileSize), enc)
 		return
 	}
 
 	data, err := io.ReadAll(f)
 	if err != nil {
-		wsc.sendJSON(map[string]any{
-			"type":  "file_read_result",
-			"id":    id,
-			"path":  path,
-			"error": err.Error(),
-		})
+		sendFileResult(wsc, keys, id, path, "", 0, err.Error(), enc)
 		return
 	}
 
 	encoded := base64.StdEncoding.EncodeToString(data)
-	wsc.sendJSON(map[string]any{
+	sendFileResult(wsc, keys, id, path, encoded, size, "", enc)
+}
+
+func sendFileResult(wsc *wsConn, keys *SessionKeys, id, path, data string, size int64, errMsg string, enc bool) {
+	if enc && keys != nil {
+		inner := map[string]any{
+			"path": path,
+			"data": data,
+			"size": size,
+		}
+		if errMsg != "" {
+			inner["error"] = errMsg
+		}
+		innerBytes, _ := json.Marshal(inner)
+		iv, encData, err := EncryptAESGCM(keys.RespKey, innerBytes, []byte(id))
+		if err == nil {
+			wsc.sendJSON(map[string]any{
+				"type": "file_read_result",
+				"id":   id,
+				"enc":  true,
+				"iv":   iv,
+				"data": encData,
+			})
+			return
+		}
+	}
+
+	msg := map[string]any{
 		"type":     "file_read_result",
 		"id":       id,
 		"path":     path,
-		"data":     encoded,
+		"data":     data,
 		"size":     size,
 		"encoding": "base64",
-	})
+	}
+	if errMsg != "" {
+		msg["error"] = errMsg
+	}
+	wsc.sendJSON(msg)
 }
 
 // resolveWithFallback resolves hostname, falling back to 8.8.8.8:53 if the
@@ -438,7 +674,7 @@ func parseIPs(addrs []string) ([]net.IP, error) {
 	return ips, nil
 }
 
-func dialAndRun(wsURL, code, connectURL string, quit <-chan struct{}) (string, bool) {
+func dialAndRun(wsURL, code, connectURL string, keys *SessionKeys, quit <-chan struct{}) (string, bool) {
 	// Extract hostname from ws:// or wss:// URL for DNS fallback
 	hostname := stripScheme(wsURL)
 	if idx := strings.IndexByte(hostname, '/'); idx >= 0 {
@@ -488,7 +724,11 @@ func dialAndRun(wsURL, code, connectURL string, quit <-chan struct{}) (string, b
 
 	dot := ansiCyan + "●" + ansiReset
 	printLine(dot, " ", connectURL, ansiReset)
-	printLine(dot, " ", ansiBold, code, ansiReset, "  —  Ctrl+C to disconnect")
+	if keys != nil {
+		printLine(dot, " ", ansiBold, code, ansiReset, "  [E2E Encrypted]  —  Ctrl+C to disconnect")
+	} else {
+		printLine(dot, " ", ansiBold, code, ansiReset, "  —  Ctrl+C to disconnect")
+	}
 
 	// Set up heartbeat: reset read deadline on server ping, respond with pong
 	conn.SetReadDeadline(time.Now().Add(pongWait))
@@ -497,11 +737,9 @@ func dialAndRun(wsURL, code, connectURL string, quit <-chan struct{}) (string, b
 		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(10*time.Second))
 	})
 
-	if !bridge.sendJSON(map[string]any{
-		"type":    "join",
-		"session": code,
-		"role":    "agent",
-		"meta": map[string]any{
+	var joinMsg map[string]any
+	if keys != nil {
+		metaBytes, _ := json.Marshal(map[string]any{
 			"host":     hostnameSafe(),
 			"os":       joinOS(),
 			"arch":     joinArch(),
@@ -509,8 +747,38 @@ func dialAndRun(wsURL, code, connectURL string, quit <-chan struct{}) (string, b
 			"cwd":      cwd(),
 			"shell":    shellName(),
 			"elevated": isElevated(),
-		},
-	}) {
+		})
+		iv, encMeta, err := EncryptAESGCM(keys.MetaKey, metaBytes, []byte("meta"))
+		if err != nil {
+			clearCurrentBridge()
+			return "", false
+		}
+		joinMsg = map[string]any{
+			"type":    "join",
+			"session": code,
+			"role":    "agent",
+			"enc":     true,
+			"iv":      iv,
+			"data":    encMeta,
+		}
+	} else {
+		joinMsg = map[string]any{
+			"type":    "join",
+			"session": code,
+			"role":    "agent",
+			"meta": map[string]any{
+				"host":     hostnameSafe(),
+				"os":       joinOS(),
+				"arch":     joinArch(),
+				"user":     safeUser(),
+				"cwd":      cwd(),
+				"shell":    shellName(),
+				"elevated": isElevated(),
+			},
+		}
+	}
+
+	if !bridge.sendJSON(joinMsg) {
 		select {
 		case <-quit:
 			clearCurrentBridge()
@@ -523,7 +791,7 @@ func dialAndRun(wsURL, code, connectURL string, quit <-chan struct{}) (string, b
 		return "", true
 	}
 
-	reconnect := readCommands(bridge, dot)
+	reconnect := readCommands(bridge, keys, dot)
 	clearCurrentBridge()
 	return dot, reconnect
 }

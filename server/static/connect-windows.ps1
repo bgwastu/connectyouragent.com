@@ -11,5 +11,10 @@ Write-Host "Downloading CYA bridge for Windows x64..."
 Invoke-WebRequest -Uri "$BaseUrl/bin/$BridgeName" -OutFile $BridgePath
 
 $env:BRIDGE_WS_URL = $BridgeWsUrl
+$Key = if ($env:KEY) { $env:KEY } elseif ($env:BRIDGE_KEY) { $env:BRIDGE_KEY } else { "" }
 Write-Host "Starting CYA bridge session $Code..."
-& $BridgePath $Code
+if ($Key) {
+  & $BridgePath $Code $Key
+} else {
+  & $BridgePath $Code
+}

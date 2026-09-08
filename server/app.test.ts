@@ -20,6 +20,14 @@ import {
   sessionInfoRoute,
   toSessionResponse,
 } from "./app.ts";
+import {
+  decryptPayload,
+  deriveSessionKeys,
+  encryptPayload,
+  entropyToPhrase,
+  generateEntropy,
+  keyToSessionCode,
+} from "./crypto.ts";
 
 const createdCodes: string[] = [];
 
@@ -512,6 +520,103 @@ describe("full local server and bridge flow", () => {
       {},
     );
     expect(disconnect).toEqual({ ok: true, code: session.code, status: "closed" });
+  }, 30_000);
+
+  test("e2e encrypted bridge flow with seed phrase", async () => {
+    const entropy = generateEntropy(16);
+    const phrase = entropyToPhrase(entropy);
+    const sessionCode = keyToSessionCode(entropy);
+    const keys = deriveSessionKeys(entropy, sessionCode);
+
+    const session = await postJson(`${baseUrl}/api/session?code=${sessionCode}`, {}) as { code: string };
+    expect(session.code).toBe(sessionCode);
+
+    const bridgeCommand = await bridgeSpawnCommand(session.code);
+    let encBridge: Bun.Subprocess | null = null;
+    try {
+      encBridge = Bun.spawn(bridgeCommand.argv, {
+        cwd: bridgeCommand.cwd,
+        stdout: "inherit",
+        stderr: "inherit",
+        env: { ...process.env, BRIDGE_WS_URL: wsUrl, KEY: phrase },
+      });
+
+      await waitFor(async () => {
+        const info = await getJson(`${baseUrl}/api/session/${sessionCode}`) as {
+          status: string;
+        };
+        return info.status === "active";
+      }, "encrypted bridge activation");
+
+      const info = await getJson(`${baseUrl}/api/session/${sessionCode}`) as {
+        status: string;
+        encrypted: boolean;
+        enc_meta?: { iv: string; data: string };
+      };
+      expect(info.status).toBe("active");
+      expect(info.encrypted).toBe(true);
+      expect(info.enc_meta).toBeDefined();
+
+      const decryptedMetaStr = decryptPayload(keys.metaKey, info.enc_meta!, "meta");
+      const decryptedMeta = JSON.parse(decryptedMetaStr) as { os: string; arch: string };
+      expect(decryptedMeta.os).toBe(process.platform);
+      expect(decryptedMeta.arch).toBe(process.arch);
+
+      const cmdId = "enc-test-cmd-1";
+      const cmdToRun = echoCommand("CYA_E2E_ENCRYPTED_SUCCESS");
+      const encryptedCmd = encryptPayload(keys.cmdKey, JSON.stringify({ cmd: cmdToRun }), cmdId);
+
+      const runRes = await postJson(`${baseUrl}/api/session/${sessionCode}/run`, {
+        enc: true,
+        id: cmdId,
+        iv: encryptedCmd.iv,
+        data: encryptedCmd.data,
+        timeout: 10,
+      }) as { enc: boolean; id: string; iv: string; data: string };
+
+      expect(runRes.enc).toBe(true);
+      expect(runRes.id).toBe(cmdId);
+
+      const decryptedResStr = decryptPayload(keys.respKey, runRes, cmdId);
+      const decryptedRes = JSON.parse(decryptedResStr) as { output: string; exit_code: number };
+      expect(decryptedRes.exit_code).toBe(0);
+      expect(decryptedRes.output).toContain("CYA_E2E_ENCRYPTED_SUCCESS");
+
+      // Verify server history is completely encrypted
+      const historyInfo = await getJson(`${baseUrl}/api/session/${sessionCode}`) as {
+        history: Array<{ enc?: boolean; cmd_iv?: string; cmd_data?: string; resp_iv?: string; resp_data?: string }>;
+      };
+      expect(historyInfo.history.length).toBe(1);
+      const historyItem = historyInfo.history[0];
+      expect(historyItem.enc).toBe(true);
+      expect(historyItem.cmd_iv).toBeDefined();
+      expect(historyItem.resp_data).toBeDefined();
+
+      const historyDecryptedCmd = decryptPayload(
+        keys.cmdKey,
+        { iv: historyItem.cmd_iv!, data: historyItem.cmd_data! },
+        cmdId,
+      );
+      expect(JSON.parse(historyDecryptedCmd).cmd).toContain("CYA_E2E_ENCRYPTED_SUCCESS");
+
+      // Verify CLI cya run command executes cleanly against encrypted session
+      const osName = process.platform === "win32" ? "windows" : process.platform;
+      const exeName = osName === "windows" ? ".exe" : "";
+      const binaryPath = join(repoRoot, "public", "bin", `cya-bridge-${osName}-${process.arch}${exeName}`);
+      if (await Bun.file(binaryPath).exists()) {
+        const cliProc = Bun.spawn([binaryPath, "run", "--url", baseUrl, "--key", phrase, echoCommand("CLI_E2E_OK")], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const cliExit = await cliProc.exited;
+        const cliOut = await new Response(cliProc.stdout).text();
+        expect(cliExit).toBe(0);
+        expect(cliOut).toContain("CLI_E2E_OK");
+      }
+    } finally {
+      encBridge?.kill(9);
+      await postJson(`${baseUrl}/api/session/${sessionCode}/disconnect`, {});
+    }
   }, 30_000);
 });
 

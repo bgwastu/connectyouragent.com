@@ -15,5 +15,8 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "verify": "bun run typecheck && bun run build && bun test"
+  },
+  "dependencies": {
+    "@scure/bip39": "^2.4.0"
   }
 }

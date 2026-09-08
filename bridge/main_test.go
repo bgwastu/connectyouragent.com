@@ -136,7 +136,7 @@ func TestReadCommandsExecutesCommandAndSendsResult(t *testing.T) {
 
 	resultCh := make(chan bool, 1)
 	go func() {
-		resultCh <- readCommands(&wsConn{conn: client}, "")
+		resultCh <- readCommands(&wsConn{conn: client}, nil, "")
 	}()
 
 	cmd := `printf ws-ok`
@@ -182,13 +182,86 @@ func TestReadCommandsExecutesCommandAndSendsResult(t *testing.T) {
 	}
 }
 
+func TestReadCommandsEncrypted(t *testing.T) {
+	client, server := websocketPair(t)
+	defer server.Close()
+
+	testKey := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+	subkeys := DeriveSubkeys(testKey, "a1b2c3d4e5f6")
+
+	resultCh := make(chan bool, 1)
+	go func() {
+		resultCh <- readCommands(&wsConn{conn: client}, &subkeys, "")
+	}()
+
+	cmd := `printf ws-enc-ok`
+	if runtime.GOOS == "windows" {
+		cmd = `echo ws-enc-ok`
+	}
+	cmdPayload, _ := json.Marshal(map[string]any{"cmd": cmd})
+	iv, encData, err := EncryptAESGCM(subkeys.CmdKey, cmdPayload, []byte("cmd-enc-1"))
+	if err != nil {
+		t.Fatalf("encrypt command failed: %v", err)
+	}
+
+	if err := server.WriteJSON(map[string]any{
+		"type": "command",
+		"id":   "cmd-enc-1",
+		"enc":  true,
+		"iv":   iv,
+		"data": encData,
+	}); err != nil {
+		t.Fatalf("write encrypted command: %v", err)
+	}
+
+	var result struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+		Enc  bool   `json:"enc"`
+		IV   string `json:"iv"`
+		Data string `json:"data"`
+	}
+	if err := server.ReadJSON(&result); err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	if result.Type != "command_result" || result.ID != "cmd-enc-1" || !result.Enc {
+		t.Fatalf("unexpected encrypted result envelope: %+v", result)
+	}
+
+	decrypted, err := DecryptAESGCM(subkeys.RespKey, result.IV, result.Data, []byte("cmd-enc-1"))
+	if err != nil {
+		t.Fatalf("decrypt response failed: %v", err)
+	}
+
+	var inner struct {
+		Output   string `json:"output"`
+		ExitCode int    `json:"exit_code"`
+	}
+	if err := json.Unmarshal(decrypted, &inner); err != nil {
+		t.Fatalf("parse decrypted response: %v", err)
+	}
+	if inner.ExitCode != 0 || !strings.Contains(inner.Output, "ws-enc-ok") {
+		t.Fatalf("unexpected decrypted command result: %+v", inner)
+	}
+
+	_ = server.WriteJSON(map[string]any{"type": "bye"})
+	select {
+	case reconnect := <-resultCh:
+		if reconnect {
+			t.Fatalf("expected readCommands to return false after bye, got true")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("readCommands did not exit after bye")
+	}
+}
+
 func TestReadCommandsIgnoresMalformedMessages(t *testing.T) {
 	client, server := websocketPair(t)
 	defer server.Close()
 
 	resultCh := make(chan bool, 1)
 	go func() {
-		resultCh <- readCommands(&wsConn{conn: client}, "")
+		resultCh <- readCommands(&wsConn{conn: client}, nil, "")
 	}()
 
 	if err := server.WriteMessage(websocket.TextMessage, []byte(`not json`)); err != nil {
@@ -220,7 +293,7 @@ func TestReadCommandsReturnsTrueOnUnexpectedDisconnect(t *testing.T) {
 
 	resultCh := make(chan bool, 1)
 	go func() {
-		resultCh <- readCommands(&wsConn{conn: client}, "")
+		resultCh <- readCommands(&wsConn{conn: client}, nil, "")
 	}()
 
 	// Close the raw TCP connection to simulate a network drop
