@@ -582,10 +582,7 @@
 
             <div id="e2e-card" class="info-box" style="margin-top: 14px;">
               <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span style="font-weight: 600; font-size: 13px;">Encryption Key</span>
-                  <span id="enc-status-text" class="hint" style="font-size: 11px;">Enabled</span>
-                </div>
+                <span style="font-weight: 600; font-size: 13px;">🔐 E2E Encryption</span>
                 <label class="switch" title="Toggle encryption">
                   <input type="checkbox" id="session-enc-toggle" checked />
                   <span class="slider"></span>
@@ -908,10 +905,8 @@
           if (HASH_KEY) {
             history.replaceState(null, "", location.pathname + "#" + HASH_KEY);
             $("session-enc-toggle").checked = true;
-            setText("enc-status-text", "Enabled");
+            $("enc-input-wrapper").hidden = false;
             $("key-display-input").value = HASH_KEY;
-            $("key-display-input").disabled = false;
-            $("copy-key-btn").disabled = false;
             if (window.CYA_CRYPTO) {
               try {
                 SESSION_KEY_BYTES = window.CYA_CRYPTO.parseKey(HASH_KEY);
@@ -923,10 +918,8 @@
             SESSION_KEY_BYTES = null;
             SESSION_SUBKEYS = null;
             $("session-enc-toggle").checked = false;
-            setText("enc-status-text", "Disabled");
-            $("key-display-input").value = "Encryption disabled";
-            $("key-display-input").disabled = true;
-            $("copy-key-btn").disabled = true;
+            $("enc-input-wrapper").hidden = true;
+            $("key-display-input").value = "";
           }
           setCommandTexts(CODE);
         }
