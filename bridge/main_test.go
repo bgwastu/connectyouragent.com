@@ -46,59 +46,6 @@ func TestTrimOutput(t *testing.T) {
 	}
 }
 
-func TestShellMetadataHelpers(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		if shellName() != "powershell.exe" {
-			t.Fatalf("unexpected Windows shell name: %q", shellName())
-		}
-		if joinOS() != "win32" {
-			t.Fatalf("unexpected Windows OS label: %q", joinOS())
-		}
-	} else {
-		if shellName() != "/bin/sh" {
-			t.Fatalf("unexpected shell name: %q", shellName())
-		}
-		if joinOS() != runtime.GOOS {
-			t.Fatalf("unexpected OS label: %q", joinOS())
-		}
-	}
-
-	if runtime.GOARCH == "amd64" {
-		if joinArch() != "x64" {
-			t.Fatalf("unexpected amd64 arch label: %q", joinArch())
-		}
-	} else if joinArch() != runtime.GOARCH {
-		t.Fatalf("unexpected arch label: %q", joinArch())
-	}
-	if hostnameSafe() == "" {
-		t.Fatalf("hostnameSafe returned empty hostname")
-	}
-	if cwd() == "" {
-		t.Fatalf("cwd returned empty directory")
-	}
-}
-
-func TestWindowsAdminUsernameDetection(t *testing.T) {
-	cases := []struct {
-		name        string
-		currentUser string
-		envUser     string
-		want        bool
-	}{
-		{name: "plain administrator", currentUser: "Administrator", want: true},
-		{name: "domain administrator", currentUser: `WINBOX\Administrator`, want: true},
-		{name: "env administrator fallback", envUser: "Administrator", want: true},
-		{name: "normal user", currentUser: `WINBOX\bagas`, envUser: "bagas", want: false},
-	}
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isWindowsAdministrator(tt.currentUser, tt.envUser); got != tt.want {
-				t.Fatalf("isWindowsAdministrator() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestOneShotArgs(t *testing.T) {
 	name, args := oneShotArgs("echo ok")
 	if runtime.GOOS == "windows" {
@@ -136,7 +83,7 @@ func TestReadCommandsExecutesCommandAndSendsResult(t *testing.T) {
 
 	resultCh := make(chan bool, 1)
 	go func() {
-		resultCh <- readCommands(&wsConn{conn: client}, nil, "")
+		resultCh <- readCommands(&wsConn{conn: client}, nil, "", nil)
 	}()
 
 	cmd := `printf ws-ok`
@@ -191,7 +138,7 @@ func TestReadCommandsEncrypted(t *testing.T) {
 
 	resultCh := make(chan bool, 1)
 	go func() {
-		resultCh <- readCommands(&wsConn{conn: client}, &subkeys, "")
+		resultCh <- readCommands(&wsConn{conn: client}, &subkeys, "", nil)
 	}()
 
 	cmd := `printf ws-enc-ok`
@@ -261,7 +208,7 @@ func TestReadCommandsIgnoresMalformedMessages(t *testing.T) {
 
 	resultCh := make(chan bool, 1)
 	go func() {
-		resultCh <- readCommands(&wsConn{conn: client}, nil, "")
+		resultCh <- readCommands(&wsConn{conn: client}, nil, "", nil)
 	}()
 
 	if err := server.WriteMessage(websocket.TextMessage, []byte(`not json`)); err != nil {
@@ -293,7 +240,7 @@ func TestReadCommandsReturnsTrueOnUnexpectedDisconnect(t *testing.T) {
 
 	resultCh := make(chan bool, 1)
 	go func() {
-		resultCh <- readCommands(&wsConn{conn: client}, nil, "")
+		resultCh <- readCommands(&wsConn{conn: client}, nil, "", nil)
 	}()
 
 	// Close the raw TCP connection to simulate a network drop

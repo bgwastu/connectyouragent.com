@@ -907,16 +907,9 @@ export function buildPrompt(
   session: ReturnType<typeof toSessionResponse>,
   baseUrl?: string,
 ): string {
-  const meta = session.meta;
   return renderTemplate(promptTemplate, {
     code: session.code,
     status: session.status,
-    host: meta.host || "unknown",
-    remote: meta.user ? `${meta.user}@${meta.host}` : meta.host || "unknown",
-    os_arch: meta.os && meta.arch ? `${meta.os}/${meta.arch}` : "unknown",
-    cwd: meta.cwd || "unknown",
-    shell: meta.shell || "unknown",
-    elevated: meta.elevated ? "yes" : "no",
     connection_status:
       session.status === "active"
         ? "The agent is connected and ready."

@@ -369,23 +369,6 @@
         gap: 12px;
       }
 
-      .meta-summary {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-        padding: 12px 14px;
-        background: var(--card-bg);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        font-size: 12px;
-      }
-      .meta-item {
-        color: var(--text-muted);
-      }
-      .meta-item span {
-        color: var(--text);
-      }
-
       .next-step {
         display: flex;
         flex-direction: column;
@@ -606,12 +589,6 @@
             <button id="disconnect" class="btn-danger" type="button">Disconnect</button>
           </div>
 
-          <div class="meta-summary">
-            <div class="meta-item">OS: <span id="meta-os">-</span></div>
-            <div class="meta-item">Shell: <span id="meta-shell">-</span></div>
-            <div class="meta-item">CWD: <span id="meta-cwd">-</span></div>
-          </div>
-
           <div class="next-step">
             <div class="next-step-title">Paste this prompt into your agent:</div>
             <div class="code-card">
@@ -670,7 +647,15 @@
         return /win/i.test(p) || /Windows/i.test(navigator.userAgent || "");
       }
       function promptUrl(code) {
-        return BASE + "/c/" + code + "/prompt.md" + (HASH_KEY ? "#" + HASH_KEY : "");
+        return BASE + "/c/" + code + "/prompt.md";
+      }
+
+      function fullAgentPrompt(code) {
+        var basePrompt = "Follow this instruction: " + promptUrl(code);
+        if (HASH_KEY) {
+          return basePrompt + "\nSession Key: " + HASH_KEY;
+        }
+        return basePrompt;
       }
 
       function unixCmd(code) {
@@ -706,7 +691,10 @@
           if (id === "cmd-unix") text = unixCmd(CODE);
           else if (id === "cmd-win") text = winCmd(CODE);
           else if (id === "cmd-router") text = routerCmd(CODE);
-          else if (id === "short-prompt") text = $("short-prompt") ? $("short-prompt").textContent : "";
+          else if (id === "short-prompt") text = fullAgentPrompt(CODE);
+        }
+        if (id === "short-prompt" && CODE) {
+          text = fullAgentPrompt(CODE);
         }
         if (!text) return;
 
@@ -807,7 +795,7 @@
         setText("cmd-win", winCmd(code));
         setText("cmd-router", routerCmd(code));
         if ($("short-prompt")) {
-          setText("short-prompt", "Follow this instruction: " + promptUrl(code));
+          setText("short-prompt", fullAgentPrompt(code));
         }
       }
 
@@ -821,21 +809,8 @@
         $("waiting").hidden = true;
         $("connected").hidden = false;
 
-        if (s.enc_meta && SESSION_SUBKEYS && window.CYA_CRYPTO) {
-          try {
-            var metaStr = await window.CYA_CRYPTO.decryptPayload(SESSION_SUBKEYS.metaKey, s.enc_meta.iv, s.enc_meta.data, "meta");
-            s.meta = JSON.parse(metaStr);
-          } catch(e) {
-            console.warn("Could not decrypt agent metadata:", e);
-          }
-        }
-
-        var m = s.meta || {};
-        setText("connected-to", "Connected to " + (m.user || "machine") + "@" + (m.host || "unknown"));
-        setText("meta-os", (m.os || "") + " (" + (m.arch || "") + ")");
-        setText("meta-shell", m.shell || "-");
-        setText("meta-cwd", m.cwd || "-");
-        setText("short-prompt", "Follow this instruction: " + promptUrl(s.code));
+        setText("connected-to", "Connected");
+        setText("short-prompt", fullAgentPrompt(s.code));
 
         if (SESSION_SUBKEYS && s.history && s.history.length > 0 && window.CYA_CRYPTO) {
           for (var i = 0; i < s.history.length; i++) {

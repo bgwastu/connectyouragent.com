@@ -279,31 +279,7 @@ describe("session API", () => {
     expect(prompt).not.toContain("POST bodies over");
     expect(prompt).not.toContain("10MB");
     expect(prompt).not.toContain("64KB");
-  });
-
-  test("shows elevated Windows administrator metadata in prompt", () => {
-    const session = createSession(track("232323232323"));
-    const ws = wsStub();
-    handleJoin(ws as never, {
-      type: "join",
-      session: session.code,
-      role: "agent",
-      meta: {
-        host: "winbox",
-        os: "win32",
-        arch: "x64",
-        user: "WINBOX\\Administrator",
-        cwd: "C:\\Users\\Administrator",
-        shell: "powershell.exe",
-        elevated: true,
-      },
-    });
-
-    const body = toSessionResponse(session, "http://test.local");
-    expect(body.meta.elevated).toBe(true);
-    const prompt = buildPrompt(body, "http://test.local");
-    expect(prompt).toContain("**Elevated:** yes");
-    expect(prompt).toContain("WINBOX\\Administrator@winbox");
+    expect(prompt).not.toContain("**Machine:**");
   });
 });
 
@@ -492,13 +468,6 @@ describe("full local server and bridge flow", () => {
       return info.status === "active";
     }, "bridge activation");
 
-    const info = await getJson(`${baseUrl}/api/session/${session.code}`) as {
-      meta: { os: string; arch: string; shell: string };
-    };
-    expect(info.meta.os).toBe(process.platform);
-    expect(info.meta.arch).toBe(process.arch);
-    expect(info.meta.shell).toBe(process.platform === "win32" ? "powershell.exe" : "/bin/sh");
-
     const marker = `CYA_E2E_${Date.now()}`;
     const getResult = await getJson(
       `${baseUrl}/api/session/${session.code}/run?cmd=${encodeURIComponent(echoCommand(marker))}`,
@@ -574,17 +543,8 @@ describe("full local server and bridge flow", () => {
 
       const info = await getJson(`${baseUrl}/api/session/${sessionCode}`) as {
         status: string;
-        encrypted: boolean;
-        enc_meta?: { iv: string; data: string };
       };
       expect(info.status).toBe("active");
-      expect(info.encrypted).toBe(true);
-      expect(info.enc_meta).toBeDefined();
-
-      const decryptedMetaStr = decryptPayload(keys.metaKey, info.enc_meta!, "meta");
-      const decryptedMeta = JSON.parse(decryptedMetaStr) as { os: string; arch: string };
-      expect(decryptedMeta.os).toBe(process.platform);
-      expect(decryptedMeta.arch).toBe(process.arch);
 
       const cmdId = "enc-test-cmd-1";
       const cmdToRun = echoCommand("CYA_E2E_ENCRYPTED_SUCCESS");

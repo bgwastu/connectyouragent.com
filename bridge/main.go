@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	osuser "os/user"
 	"regexp"
 	"runtime"
 	"strings"
@@ -218,13 +217,6 @@ func cwd() string {
 	return wd
 }
 
-func shellName() string {
-	if runtime.GOOS == "windows" {
-		return "powershell.exe"
-	}
-	return "/bin/sh"
-}
-
 func oneShotArgs(cmd string) (name string, args []string) {
 	if runtime.GOOS == "windows" {
 		return "cmd.exe", []string{"/d", "/s", "/c", cmd}
@@ -232,75 +224,11 @@ func oneShotArgs(cmd string) (name string, args []string) {
 	return "/bin/sh", []string{"-c", cmd}
 }
 
-func joinOS() string {
-	if runtime.GOOS == "windows" {
-		return "win32"
-	}
-	return runtime.GOOS
-}
-
-func joinArch() string {
-	if runtime.GOARCH == "amd64" {
-		return "x64"
-	}
-	return runtime.GOARCH
-}
-
-func safeUser() string {
-	u, err := osuser.Current()
-	if err != nil {
-		if v := os.Getenv("USER"); v != "" {
-			return v
-		}
-		if v := os.Getenv("USERNAME"); v != "" {
-			return v
-		}
-		return "unknown"
-	}
-	return u.Username
-}
-
-func isElevated() bool {
-	if runtime.GOOS == "windows" {
-		u, err := osuser.Current()
-		currentUser := ""
-		if err == nil {
-			currentUser = u.Username
-		}
-		return isWindowsAdministrator(currentUser, os.Getenv("USERNAME"))
-	}
-	if os.Getenv("SUDO_UID") != "" {
-		return true
-	}
-	return syscall.Geteuid() == 0
-}
-
-func isWindowsAdministrator(currentUser, envUser string) bool {
-	return windowsUsernameLeaf(currentUser) == "administrator" ||
-		windowsUsernameLeaf(envUser) == "administrator"
-}
-
-func windowsUsernameLeaf(value string) string {
-	value = strings.TrimSpace(value)
-	if idx := strings.LastIndexAny(value, `\/`); idx >= 0 {
-		value = value[idx+1:]
-	}
-	return strings.ToLower(value)
-}
-
 func stripScheme(raw string) string {
 	for _, prefix := range []string{"wss://", "ws://", "https://", "http://"} {
 		raw = strings.TrimPrefix(raw, prefix)
 	}
 	return raw
-}
-
-func hostnameSafe() string {
-	h, err := os.Hostname()
-	if err != nil {
-		return "unknown"
-	}
-	return h
 }
 
 type wsConn struct {
@@ -475,7 +403,7 @@ func handleRunCommand(args []string) {
 	os.Exit(res.ExitCode)
 }
 
-func readCommands(wsc *wsConn, keys *SessionKeys, dot string) bool {
+func readCommands(wsc *wsConn, keys *SessionKeys, dot string, quit <-chan struct{}) bool {
 	defer func() {
 		printLine("\n", dot, " Connection closed.", ansiReset)
 		wsc.close()
@@ -484,6 +412,12 @@ func readCommands(wsc *wsConn, keys *SessionKeys, dot string) bool {
 	for {
 		_, data, err := wsc.conn.ReadMessage()
 		if err != nil {
+			// If we received a shutdown signal (Ctrl+C), do not reconnect
+			select {
+			case <-quit:
+				return false
+			default:
+			}
 			// Normal WebSocket close = intentional (bye, signal, or server close)
 			if _, ok := err.(*websocket.CloseError); ok {
 				return false
@@ -773,42 +707,17 @@ func dialAndRun(wsURL, code, connectURL string, keys *SessionKeys, quit <-chan s
 
 	var joinMsg map[string]any
 	if keys != nil {
-		metaBytes, _ := json.Marshal(map[string]any{
-			"host":     hostnameSafe(),
-			"os":       joinOS(),
-			"arch":     joinArch(),
-			"user":     safeUser(),
-			"cwd":      cwd(),
-			"shell":    shellName(),
-			"elevated": isElevated(),
-		})
-		iv, encMeta, err := EncryptAESGCM(keys.MetaKey, metaBytes, []byte("meta"))
-		if err != nil {
-			clearCurrentBridge()
-			return "", false
-		}
 		joinMsg = map[string]any{
 			"type":    "join",
 			"session": code,
 			"role":    "agent",
 			"enc":     true,
-			"iv":      iv,
-			"data":    encMeta,
 		}
 	} else {
 		joinMsg = map[string]any{
 			"type":    "join",
 			"session": code,
 			"role":    "agent",
-			"meta": map[string]any{
-				"host":     hostnameSafe(),
-				"os":       joinOS(),
-				"arch":     joinArch(),
-				"user":     safeUser(),
-				"cwd":      cwd(),
-				"shell":    shellName(),
-				"elevated": isElevated(),
-			},
 		}
 	}
 
@@ -825,7 +734,7 @@ func dialAndRun(wsURL, code, connectURL string, keys *SessionKeys, quit <-chan s
 		return "", true
 	}
 
-	reconnect := readCommands(bridge, keys, dot)
+	reconnect := readCommands(bridge, keys, dot, quit)
 	clearCurrentBridge()
 	return dot, reconnect
 }
