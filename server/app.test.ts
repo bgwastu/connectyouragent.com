@@ -623,6 +623,13 @@ describe("full local server and bridge flow", () => {
       );
       expect(JSON.parse(historyDecryptedCmd).cmd).toContain("CYA_E2E_ENCRYPTED_SUCCESS");
 
+      // Verify /bin/cya smart binary download
+      const cyaBinRes = await fetch(`${baseUrl}/bin/cya`, {
+        headers: { "User-Agent": "curl/8.4.0 (aarch64-apple-darwin23.0)" },
+      });
+      expect(cyaBinRes.status).toBe(200);
+      expect(cyaBinRes.headers.get("Content-Type")).toBe("application/octet-stream");
+
       // Verify CLI cya run command executes cleanly against encrypted session
       const osName = process.platform === "win32" ? "windows" : process.platform;
       const exeName = osName === "windows" ? ".exe" : "";

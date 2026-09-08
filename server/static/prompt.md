@@ -10,17 +10,22 @@ You have non-interactive shell command access to a user-approved machine via Con
 
 ## Running Commands
 
-Run commands one at a time via `curl`:
+If your instruction URL contains a session key fragment (`#<key>`), communications are End-to-End Encrypted (AES-128-GCM). Run commands with the `cya` CLI runner:
 
 ```sh
-# Run command
-curl -s "{{run_url}}" -d '{"cmd":"whoami && pwd"}'
+# 1. Setup runner (run once):
+curl -fsSL "{{base_url}}/bin/cya-bridge-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')" -o /tmp/cya && chmod +x /tmp/cya
 
-# Base64 encoded (for quotes, pipes, multiline)
-curl -s "{{run_url}}" -d '{"cmd_b64":"ZWNobyBoZWxsbw=="}'
+# 2. Run encrypted commands:
+/tmp/cya run --url "{{base_url}}" --key "<KEY_FROM_URL_FRAGMENT>" "<command>"
+```
 
-# Custom timeout (default 30s, max 3600s)
-curl -s "{{run_url}}" -d '{"cmd":"sleep 10","timeout":15}'
+If no key was present in your instruction URL, run commands via curl:
+
+```sh
+curl -s "{{run_url}}" -d '{"cmd":"<command>"}'
+# Or base64 encoded:
+curl -s "{{run_url}}" -d '{"cmd_b64":"<base64_command>"}'
 ```
 
 Response format: `output` (merged stdout/stderr), `exit_code`, and `truncated`. Output caps at 131,072 bytes. Avoid interactive commands (`vim`, `top`, password prompts).

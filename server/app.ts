@@ -546,7 +546,7 @@ export async function requestHandler(
   }
 
   return (
-    (await staticHandler(url.pathname)) ||
+    (await staticHandler(url.pathname, req)) ||
     new Response("Not found", { status: 404 })
   );
 }
@@ -942,7 +942,23 @@ function connectWindowsScript(code: string, origin: string): Response {
   );
 }
 
-async function staticHandler(path: string): Promise<Response | null> {
+async function staticHandler(path: string, req?: Request): Promise<Response | null> {
+  if (path === "/bin/cya" && req) {
+    const ua = req.headers.get("User-Agent")?.toLowerCase() || "";
+    const isDarwin = ua.includes("darwin") || ua.includes("mac");
+    const isWindows = ua.includes("win");
+    const isArm64 = ua.includes("aarch64") || ua.includes("arm64");
+    let target = isArm64 ? "linux-arm64" : "linux-x64";
+    if (isDarwin) target = isArm64 ? "darwin-arm64" : "darwin-x64";
+    else if (isWindows) target = "windows-x64.exe";
+    const file = Bun.file(`./public/bin/cya-bridge-${target}`);
+    if (await file.exists()) {
+      return new Response(file, {
+        headers: { "Content-Type": "application/octet-stream", ...NO_CACHE },
+      });
+    }
+  }
+
   if (path.startsWith("/bin/")) {
     const fileName = path.slice(5);
     if (!/^[a-zA-Z0-9_.-]+$/.test(fileName)) return null;

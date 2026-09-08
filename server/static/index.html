@@ -669,7 +669,9 @@
         var p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
         return /win/i.test(p) || /Windows/i.test(navigator.userAgent || "");
       }
-      function promptUrl(code) { return BASE + "/c/" + code + "/prompt.md"; }
+      function promptUrl(code) {
+        return BASE + "/c/" + code + "/prompt.md" + (HASH_KEY ? "#" + HASH_KEY : "");
+      }
 
       function unixCmd(code) {
         if (HASH_KEY) return "curl -fsSL " + BASE + "/c/" + code + " | KEY=\"" + HASH_KEY + "\" bash";
@@ -804,6 +806,9 @@
         setText("cmd-unix", unixCmd(code));
         setText("cmd-win", winCmd(code));
         setText("cmd-router", routerCmd(code));
+        if ($("short-prompt")) {
+          setText("short-prompt", "Follow this instruction: " + promptUrl(code));
+        }
       }
 
       function showWaiting(s) {
