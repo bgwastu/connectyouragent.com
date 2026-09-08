@@ -624,8 +624,13 @@ describe("full local server and bridge flow", () => {
       expect(JSON.parse(historyDecryptedCmd).cmd).toContain("CYA_E2E_ENCRYPTED_SUCCESS");
 
       // Verify /bin/cya smart binary download
+      const userAgent = process.platform === "win32"
+        ? "curl/8.0.1 (x86_64-pc-windows-msys)"
+        : process.platform === "darwin"
+          ? "curl/8.4.0 (aarch64-apple-darwin23.0)"
+          : "curl/7.88.1 (x86_64-pc-linux-gnu)";
       const cyaBinRes = await fetch(`${baseUrl}/bin/cya`, {
-        headers: { "User-Agent": "curl/8.4.0 (aarch64-apple-darwin23.0)" },
+        headers: { "User-Agent": userAgent },
       });
       expect(cyaBinRes.status).toBe(200);
       expect(cyaBinRes.headers.get("Content-Type")).toBe("application/octet-stream");
