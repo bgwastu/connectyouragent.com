@@ -35,6 +35,9 @@ const connectWindowsPs1 = await Bun.file(
 const promptTemplate = await Bun.file(
   new URL("./static/prompt.md", import.meta.url),
 ).text();
+const notFoundTemplate = await Bun.file(
+  new URL("./static/not-found.md", import.meta.url),
+).text();
 const cyaCryptoJs = await Bun.file(
   new URL("./static/cya-crypto.js", import.meta.url),
 ).text();
@@ -262,11 +265,29 @@ export function disconnectRoute(req: RouteRequest): Response {
 }
 
 export function commandRoute(req: RouteRequest): Promise<Response> {
-  const code = routeCode(req);
-  if (!code) return Promise.resolve(notFound());
+  const code = req.params.code || "";
+  const origin = effectiveOrigin(req);
+  if (!isSessionCode(code)) {
+    return Promise.resolve(expiredCommandResponse(code, origin));
+  }
   const session = getSession(code);
-  if (!session) return Promise.resolve(notFound());
+  if (!session) {
+    return Promise.resolve(expiredCommandResponse(code, origin));
+  }
   return handleCommand(req, new URL(req.url), session);
+}
+
+function expiredCommandResponse(code: string, origin: string): Response {
+  return json(
+    {
+      error: "Session unavailable",
+      session: code || "unknown",
+      about:
+        "CYA gives an AI agent temporary, user-approved command access to a machine without opening inbound ports or sharing SSH credentials. Sessions are 100% in-memory and ephemeral.",
+      message: `The requested CYA session (${code || "unknown"}) is no longer available. It has either expired due to idle timeout, been closed by the user, or the session code is invalid. Please ask the user to start a new session at ${origin}.`,
+    },
+    404,
+  );
 }
 
 export async function downloadRoute(req: RouteRequest): Promise<Response> {
@@ -338,12 +359,31 @@ export function promptRoute(req: RouteRequest): Response {
 }
 
 function promptResponse(req: RouteRequest): Response {
-  const code = routeCode(req);
-  if (!code) return notFound();
-  const session = getSession(code);
-  if (!session) return notFound();
+  const code = req.params.code || "";
   const origin = effectiveOrigin(req);
+  if (!isSessionCode(code)) {
+    return expiredPromptResponse(code, origin);
+  }
+  const session = getSession(code);
+  if (!session) {
+    return expiredPromptResponse(code, origin);
+  }
   return markdown(buildPrompt(toSessionResponse(session, origin), origin));
+}
+
+function expiredPromptResponse(code: string, origin: string): Response {
+  const body = renderTemplate(notFoundTemplate, {
+    code: code || "unknown",
+    origin: origin || "the CYA host",
+  });
+
+  return new Response(body, {
+    status: 404,
+    headers: {
+      "Content-Type": "text/markdown; charset=utf-8",
+      ...NO_CACHE,
+    },
+  });
 }
 
 function routeCode(req: RouteRequest): string | null {

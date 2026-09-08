@@ -358,6 +358,30 @@ describe("page and installer routes", () => {
     expect(prompt).toContain("non-interactive shell command access");
   });
 
+  test("returns informational 404 markdown for missing or expired sessions", async () => {
+    const req = routeReq("http://test.local/c/999999999999/prompt.md", { code: "999999999999" });
+    const res = promptRoute(req);
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Content-Type")).toContain("text/markdown");
+
+    const text = await res.text();
+    expect(text).toContain("# Connect Your Agent (CYA)");
+    expect(text).toContain("CYA gives an AI agent temporary");
+    expect(text).toContain("Session Unavailable");
+    expect(text).toContain("no longer available");
+    expect(text).toContain("Running Commands");
+  });
+
+  test("returns informational 404 json for running commands on missing or expired sessions", async () => {
+    const req = routeReq("http://test.local/api/session/999999999999/run?cmd=whoami", { code: "999999999999" });
+    const res = await commandRoute(req);
+    expect(res.status).toBe(404);
+    const data = await json(res) as { error: string; about: string; message: string };
+    expect(data.error).toBe("Session unavailable");
+    expect(data.about).toContain("CYA gives an AI agent temporary");
+    expect(data.message).toContain("no longer available");
+  });
+
   test("effectiveOrigin extracts scheme and host without base url env", () => {
     // Direct request
     const directReq = new Request("http://localhost:8765/api/session");
